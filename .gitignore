@@ -9,3 +9,6 @@ data/evidence/*
 !data/evidence/.gitkeep
 .pytest_cache/
 .vscode/
+data/plate_crops/
+data/plate_results/
+data/test_plates/
