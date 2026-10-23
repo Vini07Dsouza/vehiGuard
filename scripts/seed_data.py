@@ -29,7 +29,7 @@ OWNERS = [
 # valid_for_days: None for permanent, +N = valid for N more days, -N = expired
 VEHICLES = [
     ("KA19AB1234", "O001", "PERMANENT", None, "ACTIVE", "Maruti", "Swift", "White"),
-    ("KA19CD5678", "O002", "PERMANENT", None, "ACTIVE", "Hyundai", "i20", "Red"),
+    ("KA19EG2310", "O002", "PERMANENT", None, "ACTIVE", "Hyundai", "i20", "Red"),
     ("KA20EF2468", "O003", "PERMANENT", None, "ACTIVE", "Tata", "Nexon", "Blue"),
     ("KA19TR0001", "O003", "TEMPORARY", 20, "ACTIVE", "Honda", "City", "Silver"),
     ("KA19TR0002", "O001", "TEMPORARY", -10, "ACTIVE", "Kia", "Seltos", "Black"),

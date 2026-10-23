@@ -14,6 +14,8 @@ Record the source, licence and use of **every** dataset, model or image collecti
 | D04 | Volunteer face photos | Consented volunteers | Consent form | Owner, driver, watchlist test data | [number] people | [date] | Stored locally only; **not in Git** |
 | D05 | Synthetic or public face images (if needed) | [fill in link] | [fill in] | Fictional wanted / missing faces | [number] | [date] | Only if volunteers are not enough |
 | D06 | Ultralytics sample image `bus.jpg` | Ultralytics docs | See Ultralytics | Phase 0 smoke test only | 1 image | 2026-10 | Not committed |
+| D07 | Nepal plate detector (YOLOv8s) | https://huggingface.co/krishnamishra8848/Nepal-Vehicle-License-Plate-Detection | Apache-2.0 | Plate detection baseline (Day 2) | 22.5 MB | 2026-10 | Trained on Nepal plates; tested on my own Indian plate photos before relying on it; not committed to Git |
+| D08 | Sample registry data (seed script) | Written by me in `scripts/seed_data.py` | Own work | Dummy owners, vehicles, stations, checkpoints | 8 vehicles | 2026-10 | Fictional names and made-up plates only |
 
 ## 2. Data splits (fill in during Phase 2)
 
