@@ -9,17 +9,20 @@ import easyocr
 CROPS = Path("data/plate_crops")
 ALLOWED = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 
-# Indian formats: KA19AB1234 (standard) and 22BH1234AA (BH series)
-STANDARD = re.compile(r"^[A-Z]{2}\d{1,2}[A-Z]{0,3}\d{4}$")
-BH_SERIES = re.compile(r"^\d{2}BH\d{4}[A-Z]{1,2}$")
-
-# Common OCR confusions
+STANDARD = re.compile(r"^[A-Z]{2}\d{2}[A-Z]{1,3}\d{4}$")
+BH_SERIES = re.compile(r"\d{2}BH\d{4}[A-Z]{1,2}")
+STATE_CODES = {
+    "AN", "AP", "AR", "AS", "BR", "CG", "CH", "DD", "DL", "DN", "GA", "GJ", "HP",
+    "HR", "JH", "JK", "KA", "KL", "LA", "LD", "MH", "ML", "MN", "MP", "MZ", "NL",
+    "OD", "OR", "PB", "PY", "RJ", "SK", "TN", "TR", "TS", "UK", "UP", "WB",
+}  # fmt: skip
 TO_DIGIT = {
     "O": "0",
     "Q": "0",
     "D": "0",
     "I": "1",
     "L": "1",
+    "T": "1",
     "Z": "2",
     "S": "5",
     "B": "8",
@@ -28,67 +31,110 @@ TO_DIGIT = {
 TO_LETTER = {"0": "O", "1": "I", "2": "Z", "5": "S", "8": "B", "6": "G"}
 
 
-def preprocess(img):
+def preprocess_variants(img):
+    """Three versions of the crop; the best OCR result is kept."""
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    gray = cv2.resize(gray, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
-    gray = cv2.bilateralFilter(gray, 9, 75, 75)
-    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-    return clahe.apply(gray)
+    scale = max(1.0, 600 / gray.shape[1])
+    big = cv2.resize(gray, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8)).apply(big)
+    _, otsu = cv2.threshold(big, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    return [big, clahe, otsu]
 
 
-def clean(text):
-    return re.sub(r"[^A-Z0-9]", "", text.upper())
+def order_segments(results):
+    """Sort text pieces top-to-bottom, then left-to-right (handles 2-line plates)."""
+    items = []
+    for box, text, conf in results:
+        ys = [p[1] for p in box]
+        xs = [p[0] for p in box]
+        items.append((sum(ys) / 4, min(xs), max(ys) - min(ys), text, conf))
+    if not items:
+        return []
+    avg_h = sum(i[2] for i in items) / len(items)
+    items.sort(key=lambda i: i[0])
+    rows, row = [], [items[0]]
+    for item in items[1:]:
+        if abs(item[0] - row[-1][0]) < 0.6 * avg_h:
+            row.append(item)
+        else:
+            rows.append(row)
+            row = [item]
+    rows.append(row)
+    ordered = []
+    for r in rows:
+        ordered += sorted(r, key=lambda i: i[1])
+    return ordered
 
 
-def fix_plate(text):
-    """Fix letter/digit mix-ups by position for plates like KA19AB1234."""
-    if not 9 <= len(text) <= 10:
-        return text
-    chars = list(text)
-    for i in (0, 1):  # state code = letters
-        chars[i] = TO_LETTER.get(chars[i], chars[i])
-    n = len(chars)
-    for i in (2, n - 4, n - 3, n - 2, n - 1):  # RTO digit and last 4 = digits
-        chars[i] = TO_DIGIT.get(chars[i], chars[i])
-    return "".join(chars)
+def fix_window(window):
+    """Letters in the state/series slots, digits in the number slots."""
+    n = len(window)
+    out = []
+    for i, ch in enumerate(window):
+        if i < 2 or 4 <= i < n - 4:
+            out.append(TO_LETTER.get(ch, ch))
+        else:
+            out.append(TO_DIGIT.get(ch, ch))
+    return "".join(out)
 
 
-def is_valid(text):
-    return bool(STANDARD.match(text) or BH_SERIES.match(text))
+def extract_plate(text):
+    # Blue "IND" strip on HSRP plates: may be read first or between the two rows
+    text = re.sub(r"^[A-Z0-9]?ND", "", text).replace("IND", "")
+    bh = BH_SERIES.search(text)
+    if bh:
+        return bh.group(0)
+    for n in (10, 9, 11):
+        for start in range(len(text) - n + 1):
+            window = fix_window(text[start : start + n])
+            if STANDARD.match(window) and window[:2] in STATE_CODES:
+                return window
+    return text
+
+
+def is_valid(plate):
+    if BH_SERIES.fullmatch(plate):
+        return True
+    return bool(STANDARD.match(plate)) and plate[:2] in STATE_CODES
 
 
 def read_plate(reader, img):
-    results = reader.readtext(preprocess(img), allowlist=ALLOWED)
-    results.sort(key=lambda r: r[0][0][0])  # left to right
-    if not results:
-        return "", 0.0
-    text = "".join(r[1] for r in results)
-    conf = sum(r[2] for r in results) / len(results)
-    return clean(text), conf
+    best = ("", 0.0, "")  # plate, confidence, raw text
+    best_valid = False
+    for variant in preprocess_variants(img):
+        results = order_segments(reader.readtext(variant, allowlist=ALLOWED))
+        if not results:
+            continue
+        raw = re.sub(r"[^A-Z0-9]", "", "".join(r[3] for r in results).upper())
+        conf = sum(r[4] for r in results) / len(results)
+        plate = extract_plate(raw)
+        valid = is_valid(plate)
+        if (valid, conf) > (best_valid, best[1]):
+            best, best_valid = (plate, conf, raw), valid
+    return best[0], best[1], best[2], best_valid
 
 
 def main():
     reader = easyocr.Reader(["en"], gpu=False)
-    files = sorted(CROPS.glob("*.jpg"))
-    total = valid = exact = named = 0
-    for path in files:
+    total = valid_count = exact = named = 0
+    for path in sorted(CROPS.glob("*.jpg")):
         img = cv2.imread(str(path))
-        raw, conf = read_plate(reader, img)
-        plate = fix_plate(raw)
-        ok = is_valid(plate)
-        match = re.match(r"[A-Z0-9]+", path.stem)
-        expected = match.group(0) if match else ""
+        if img is None:
+            continue
+        plate, conf, raw, ok = read_plate(reader, img)
+        m = re.match(r"[A-Z]{2}\d{2}[A-Z]{1,3}\d{4}", path.stem)
+        expected = m.group(0) if m else ""
         line = (
-            f"{path.name:35} raw={raw:12} fixed={plate:12} valid={ok} conf={conf:.2f}"
+            f"{path.name:40} raw={raw:14} plate={plate:12} valid={ok} conf={conf:.2f}"
         )
         total += 1
-        valid += ok
-        if STANDARD.match(expected):  # file named like KA19AB1234_01_plate0.jpg
+        valid_count += ok
+        if expected:
             named += 1
             exact += plate == expected
-            line += f" expected={expected} {'OK' if plate == expected else 'WRONG'}"
+            line += f"  expected={expected} {'OK' if plate == expected else 'WRONG'}"
         print(line)
-    print(f"\nCrops: {total}   Valid format: {valid}   Exact match: {exact}/{named}")
+    print(f"\nCrops: {total}   Valid: {valid_count}   Exact match: {exact}/{named}")
 
 
 if __name__ == "__main__":
