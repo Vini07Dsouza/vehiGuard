@@ -1,87 +1,103 @@
-# Technology Stack — VehiLence
+# Technology Stack — VehiGuard
 
 | Field | Value |
 |---|---|
 | Document | `tech_stack.md` |
-| Version | 1.0 (Draft for review) |
-| Date | 04 Oct 2026 |
+| Version | 2.0 (Draft for review) |
+| Date | 09 Nov 2026 |
 | Author | [Vinisha Marina Dsouza] |
 | Related documents | [problem_statement.md](problem_statement.md) · [prd.md](prd.md) · [architecture.md](architecture.md) · [phase_definition.md](phase_definition.md) |
 
 ## 1. Selection Principles
 
 1. **Free and open source** wherever possible (budget constraint C2).
-2. **Python end-to-end** — one language for vision, backend, dashboard and tests.
+2. **Python for everything except the dashboard** — one language for vision, analysis, backend and tests. The dashboard is React, as chosen for the project.
 3. **Runs on a single laptop** with an optional GPU; no cloud dependency for the core flow.
-4. **Replaceable components** — storage, face model and notification channels can be swapped without changing business logic.
+4. **Replaceable components** — OCR, storage and notification channels can be swapped without changing business logic.
 5. **Mature, well-documented libraries** with active communities, because the project timeline is short.
 
 ## 2. Stack at a Glance
 
 | Layer | Choice | Role |
 |---|---|---|
-| Language | Python 3.10 / 3.11 | All components |
-| Capture | Android phone + IP Webcam / DroidCam; OpenCV `VideoCapture` | Video source |
-| Vehicle & plate detection | YOLOv8 (Ultralytics) | Locate vehicle and plate |
-| Image processing | OpenCV, NumPy | Preprocessing, quality checks |
-| OCR | EasyOCR (primary), Tesseract (fallback) | Read plate text |
-| Face detection & embedding | DeepFace (Facenet512 + RetinaFace/MTCNN detector) | Face verification and watchlist matching |
-| Similarity search | NumPy cosine (FAISS optional) | 1:1 and 1:N face matching |
+| Language | Python 3.10 / 3.11; JavaScript for the dashboard | All backend components; dashboard |
+| Capture | Phone camera apps (DroidCam, Iriun Webcam or IP Webcam); OpenCV `VideoCapture` | Video sources |
+| Vehicle & plate detection | YOLO (Ultralytics YOLOv8) | Locate vehicle and plate |
+| Image processing | OpenCV, NumPy | Preprocessing, colour analysis |
+| OCR | PaddleOCR (primary), EasyOCR (fallback), Tesseract (optional) | Read plate text |
+| Appearance analysis | OpenCV (HSV colour), scikit-learn (k-means) | Vehicle colour family; type from the detector class |
+| Geospatial analytics | Own Haversine function (PostGIS optional) | Distance between cameras, nearest station, journey check |
 | Backend API | FastAPI + Uvicorn + Pydantic | REST API, business logic hosting |
-| ORM / DB | SQLAlchemy 2.x + SQLite (WAL mode) | Persistence |
-| Background jobs | APScheduler (in-process) | Timeouts, retries, retention |
-| Owner notification | Telegram Bot API (`python-telegram-bot` or `aiogram`) | Allow / Complain buttons |
-| Police alert delivery | SMTP email (primary), Twilio SMS (optional), dashboard | Alert dispatch |
-| Dashboard | Streamlit (+ Plotly / Folium for charts and maps) | Operator and admin UI |
+| Database | PostgreSQL | Persistence |
+| ORM / migrations | SQLAlchemy 2.x + Alembic + psycopg | Data access |
+| Background jobs | APScheduler (in-process) | Retries, retention, camera health |
+| Police alert delivery | SMTP email, dashboard, simulated inbox | Alert dispatch |
+| Dashboard | React (Vite) + React Router + Leaflet + Recharts | Operator and admin UI |
 | Config & secrets | `pydantic-settings`, YAML, `.env` | Thresholds and credentials |
 | Logging | `loguru` or `structlog` | Structured logs |
 | Testing | pytest, pytest-cov, scikit-learn metrics | Unit, integration, evaluation |
-| Quality | ruff, black, pre-commit, pip-audit | Code quality and security hygiene |
+| Quality | ruff, black, pre-commit, pip-audit, npm audit | Code quality and security hygiene |
 | Version control | Git + GitHub | Source and issue tracking |
 | Model training | Google Colab / Kaggle notebooks (free GPU) | Fine-tune plate detector |
 | Annotation | Roboflow (free tier) or Label Studio | Label plate images |
 | Packaging (optional) | Docker + docker-compose | Repeatable environments |
 
+### 2.1 Changes from the earlier VehiLence plan
+
+| Earlier plan | VehiGuard | Reason |
+|---|---|---|
+| Face verification with DeepFace | Removed | The project no longer identifies people |
+| Telegram owner Allow / Complain flow | Removed | No owner-driver check |
+| EasyOCR primary | PaddleOCR primary, EasyOCR fallback | PaddleOCR chosen for the project; EasyOCR is already installed and works as a safety net |
+| SQLite | PostgreSQL | Better fit for time-range and journey queries and for several writers (several cameras) |
+| Streamlit dashboard | React dashboard | Chosen for the project; richer maps and detail pages |
+| Phone via IP Webcam | Phone via DroidCam / Iriun / IP Webcam | Whichever works reliably on the project network (see §3.1) |
+| Fine-tuned YOLO plate detector, YOLOv8n vehicle detector | Unchanged | Still the detection core |
+
+Work already done under the earlier plan carries over: the virtual environment, OpenCV, the YOLOv8n test, pre-commit hooks, the Nepal plate-detector baseline and the consent/data-handling approach.
+
 ## 3. Detailed Choices and Rationale
 
-### 3.1 Capture: Android phone camera
+### 3.1 Capture: phone cameras
 
 | Item | Decision |
 |---|---|
-| App | **IP Webcam** (serves an MJPEG stream over Wi-Fi) or **DroidCam**; both are free |
-| Read in code | `cv2.VideoCapture("http://<phone-ip>:8080/video")` |
-| Connection | Same Wi-Fi network; **USB tethering** if Wi-Fi latency is poor |
-| Resolution | 1280×720 at 15–30 fps; process 5–10 fps |
+| Apps | **DroidCam** or **Iriun Webcam** (the phone appears as a webcam on the laptop, read with `cv2.VideoCapture(index)`), or **IP Webcam** (serves a stream over Wi-Fi, read with `cv2.VideoCapture("http://<phone-ip>:8080/video")`) |
+| Connection | Same Wi-Fi network; **USB** connection if Wi-Fi latency is poor |
+| Several cameras | Each camera has its own camera ID and its own worker thread. Free tiers of some apps may limit how many phones can connect; check this in Phase 0 |
+| Fallback for a second location | Re-register one phone at a different location between sessions, or feed recorded video (replay mode) |
+| Resolution | 1280×720 at 15–30 fps; process about 5 fps |
 | Mounting | Phone on a tripod or holder |
-| Fallback | Laptop webcam, video file or image folder (FR-CAP-02) |
+| Timestamps | The **laptop clock** at frame arrival. Phone clocks are not used |
 
-**Why not a custom mobile app?** It adds Android development effort with no benefit for the evaluation. A streaming app gives the same input in minutes. A browser-based capture page (`getUserMedia`) is a possible alternative, but mobile browsers require HTTPS, which adds setup work.
+**Why not a custom mobile app?** It adds Android development effort with no benefit for the evaluation. A camera app gives the same input in minutes.
 
-### 3.2 Vehicle and plate detection: YOLOv8
+**Camera locations.** Each camera is registered with assigned latitude/longitude. Because the demo phones are physically close, these coordinates are **simulated** (for example, Camera A and Camera B are registered about 38 km apart). This is stated in the report.
+
+### 3.2 Vehicle and plate detection: YOLO
 
 | Item | Decision |
 |---|---|
 | Library | `ultralytics` |
-| Vehicle detector | Pre-trained `yolov8n.pt` (COCO classes: car, motorcycle, bus, truck) |
-| Plate detector | `yolov8n` or `yolov8s` **fine-tuned** on a licence-plate dataset |
+| Vehicle detector | Pre-trained `yolov8n.pt` (COCO classes: car, motorcycle, bus, truck); the class also gives the vehicle **type** |
+| Plate detector | `yolov8n` or `yolov8s` fine-tuned on a licence-plate dataset. The Nepal plate detector (dataset log D07) is a baseline to compare against |
 | Training data | Public plate datasets (Roboflow Universe, Kaggle) plus own photos; **verify each dataset's licence** |
 | Training setup | Image size 640, 50–100 epochs, standard augmentations (brightness, blur, rotation, perspective) |
 | Evaluation | mAP@0.5, precision, recall on a held-out test set |
 | Inference | GPU if available, otherwise CPU with `yolov8n` |
 
-**Why YOLOv8?** It gives a good accuracy/speed balance, has simple training and export workflows, and matches the project report.
-
 **Licence note:** Ultralytics YOLOv8 is released under **AGPL-3.0**. This is fine for an academic project; a commercial product would need to comply with AGPL or obtain a commercial licence.
 
-### 3.3 OCR: EasyOCR with Tesseract fallback
+### 3.3 OCR: PaddleOCR with EasyOCR fallback
 
 | Item | Decision |
 |---|---|
-| Primary | **EasyOCR** with allow-list `A–Z 0–9`, run on the preprocessed crop |
-| Fallback | **Tesseract** (`--psm 7`, character whitelist) |
+| Primary | **PaddleOCR** (needs the `paddlepaddle` package; use the CPU build unless a supported GPU is available) |
+| Fallback | **EasyOCR** with allow-list `A–Z 0–9`; Tesseract (`--psm 7`, whitelist) is optional |
 | Pre-processing | Grayscale → denoise (bilateral / non-local means) → CLAHE contrast → deskew / perspective warp → resize |
 | Post-processing | Uppercase, strip separators, position-aware correction (letter vs digit slots), regex validation |
-| Robustness | Multi-frame voting (N = 10) |
+| Robustness | Multi-frame voting (N = 10) and a confidence gate |
+| Version note | PaddleOCR's Python API differs between major versions. Pin the version that installs cleanly in Phase 0 and follow the documentation for that version |
 
 **Indian plate patterns (configurable in `config/plate_patterns.yaml`):**
 
@@ -89,114 +105,99 @@
 |---|---|---|
 | Standard | `KA19AB1234` | `^[A-Z]{2}[0-9]{1,2}[A-Z]{0,3}[0-9]{4}$` |
 | BH series | `22BH1234AA` | `^[0-9]{2}BH[0-9]{4}[A-Z]{1,2}$` |
-| Temporary | state-specific | Defined in config, because formats vary by state and period |
 
-**Why two engines?** EasyOCR is generally more robust on tilted or low-quality plates; Tesseract is lightweight and works as a cross-check or fallback.
+**Why a fallback engine?** If PaddlePaddle conflicts with another package, or reads a particular plate style poorly, EasyOCR (already installed) keeps the pipeline working. Compare both engines on the plate test set and record the results.
 
-### 3.4 Face verification: DeepFace
+### 3.4 Appearance analysis
 
 | Item | Decision |
 |---|---|
-| Library | `deepface` |
-| Embedding model | **Facenet512** (512-d embedding) |
-| Face detector | **RetinaFace** (more accurate) or **MTCNN**; OpenCV detector as fast fallback |
-| Distance metric | Cosine distance |
-| Thresholds | Start from the library's default for the chosen model, then **tune on the project's own volunteer data**. Use a **stricter** threshold for watchlist screening than for owner verification |
-| Storage | Embeddings as `float32` BLOB (≈ 2 KB each) |
-| 1:N search | NumPy matrix cosine similarity (dummy watchlist is small); FAISS as an optional upgrade |
-| Quality gate | Min face size, Laplacian-variance sharpness, brightness range, head-pose limits |
+| Vehicle type | From the YOLO class (car, motorcycle, bus, truck); majority over the voting frames |
+| Colour | Crop the vehicle body region, convert to HSV, take the dominant colour (k-means or histogram), and map it to a **colour family**: white/silver/grey, black, red, blue, green, yellow/orange, brown, other |
+| Why families | Lighting makes white, silver and grey look alike, so they are one family. This avoids false mismatches |
+| Unknown | If the crop is too dark, too small or blurred, the value is `UNKNOWN`, which is never a mismatch |
+| Comparison | Equal type and equal colour family → match; known values that differ → mismatch |
+| Stretch | A pretrained CNN embedding of the vehicle crop (cosine similarity) as an extra signal (FR-APP-06) |
 
-**Alternatives considered**
+### 3.5 Geospatial analytics
 
-| Option | Pros | Cons | Verdict |
-|---|---|---|---|
-| `face_recognition` (dlib) | Very simple API | dlib is hard to build on Windows; less accurate | Fallback only |
-| InsightFace (ArcFace, ONNX) | High accuracy; avoids TensorFlow | Slightly more setup | **Recommended fallback** if TensorFlow conflicts appear |
-| `facenet-pytorch` | PyTorch-only stack | Smaller ecosystem | Alternative |
+| Item | Decision |
+|---|---|
+| Distance | Haversine (great-circle) function in Python, using the camera coordinates |
+| Journey check | `d > MAX_PLAUSIBLE_SPEED_KMH × (Δt + TIME_TOLERANCE_S)`, with `d ≥ MIN_CLONE_DISTANCE_KM` (see [architecture.md §8.3](architecture.md)) |
+| Nearest station | Haversine from the camera to each station; minimum wins |
+| Why straight-line | Straight-line distance never exceeds road distance, so the rule cannot flag a journey that was actually possible because of a long road |
+| Optional upgrade | PostgreSQL **PostGIS** for geospatial queries and `ST_Distance`; not required for the prototype |
+| Map display | Leaflet with OpenStreetMap tiles on the dashboard (needs internet; a blank map with markers is the offline fallback) |
 
-**Known risk:** DeepFace depends on TensorFlow/Keras, while YOLOv8 and EasyOCR use PyTorch. They normally coexist, but the install is large and versions can clash. Use a **dedicated virtual environment** and test the full import chain in Phase 0.
-
-### 3.5 Backend: FastAPI
+### 3.6 Backend: FastAPI
 
 | Item | Decision |
 |---|---|
 | Framework | **FastAPI** with Uvicorn |
-| Why not Flask | FastAPI gives typed request/response models (Pydantic), automatic OpenAPI docs, async support and built-in dependency injection for auth |
+| Why not Flask | Typed request/response models (Pydantic), automatic OpenAPI docs, async support, built-in dependency injection for auth |
 | Auth | OAuth2 password flow with JWT access tokens; `passlib[bcrypt]` for hashing |
 | Validation | Pydantic v2 models for every endpoint |
-| Rate limiting | `slowapi` on public endpoints |
+| Rate limiting | `slowapi` on the login endpoint |
+| Live updates | Server-Sent Events (or periodic polling) so the dashboard updates without refresh |
 | Structure | Modular monolith: routers → services → repositories |
 
-### 3.6 Database and storage
+### 3.7 Database: PostgreSQL
 
 | Item | Decision |
 |---|---|
-| Database | **SQLite** in WAL mode (zero setup, single file, enough for the prototype) |
-| ORM | SQLAlchemy 2.x with Alembic migrations |
-| Evidence files | Local folder `data/evidence/<yyyy>/<mm>/<session_id>/`, accessed only via authenticated API |
-| Embeddings | BLOB columns in the owner, `wanted_list` and `missing_reports` tables |
-| Upgrade path | PostgreSQL (change the connection string); FAISS for large watchlists |
-| Backup | Copy DB file and evidence folder; seed script can rebuild everything |
+| Database | **PostgreSQL**, installed locally (installer or Docker) |
+| Driver / ORM | `psycopg` with SQLAlchemy 2.x; Alembic migrations |
+| Indexes | `sightings(plate_no, observed_at)` for the journey query; `alerts(status, created_at)` |
+| Evidence files | Local folder `data/evidence/<yyyy>/<mm>/<sighting_id>/`, accessed only through the authenticated API |
+| Backup | `pg_dump` plus the evidence folder; the seed script can rebuild everything |
+| Why PostgreSQL | Strong time-range and index support for the sighting history; handles writes from several camera workers; PostGIS can be added later |
+| Setup note | The installer is large. If the network is slow, download it early or use Docker only if it is already installed |
 
-SQLite was chosen to match the project report and because the demo runs on one machine. It is not suitable for many concurrent writers, which the prototype does not need.
-
-### 3.7 Notifications and alerts
+### 3.8 Alerts and notifications
 
 | Channel | Used for | Choice | Notes |
 |---|---|---|---|
-| **Telegram Bot** | Owner **Allow / Complain** | `python-telegram-bot` (long polling) | Free; inline buttons; sends the driver snapshot; no public URL needed |
-| **Email (SMTP)** | Police station alerts | `smtplib` / `fastapi-mail` | Gmail needs an app password (2-step verification on) |
-| **SMS** | Optional police/owner SMS | Twilio | Trial accounts send only to **verified numbers**; use for a short demo |
-| **Dashboard** | Police operators | Streamlit alerts and review pages | Always available |
+| **Dashboard** | All alerts | React alerts page | Always available |
+| **Email (SMTP)** | HIGH and MEDIUM alerts to the station | `smtplib` / `fastapi-mail` | Gmail needs an app password (2-step verification on) |
 | **Simulated mode** | Demo safety | Writes to a mock station inbox table | Default for tests and demo fallback |
-| **Push (FCM)** | Not used in prototype | — | Needs a mobile app; listed under future work |
+| **SMS** | Optional | Twilio trial | Only to verified numbers; not required |
 
-**Why Telegram instead of only SMS or Firebase?** The owner needs **two tap-able actions**. SMS cannot carry buttons without a hosted link, and Firebase push needs a mobile app. A Telegram bot is free, gives buttons and photos immediately, and works with long polling on a laptop. A signed-link web page remains a possible fallback.
+Delivery goes through an **outbox** with retry and exponential back-off (FR-ALR-04).
 
-### 3.7a Deviation from the project report
-
-| Report mentions | This plan uses | Reason |
-|---|---|---|
-| Twilio SMS / Firebase for alerts | Telegram (owner), SMTP + dashboard (police), Twilio optional | Free, no mobile app needed, supports Allow/Complain buttons |
-| Flask / FastAPI | FastAPI | Typed models and auto-docs |
-| HTML-CSS-JS or Streamlit | Streamlit | Fastest route to a working operator dashboard |
-| face_recognition / DeepFace | DeepFace (InsightFace fallback) | Easier install; stronger models |
-
-The report can keep its original wording as "options considered".
-
-### 3.8 Dashboard: Streamlit
+### 3.9 Dashboard: React
 
 | Item | Decision |
 |---|---|
-| Framework | **Streamlit**, multipage app, talks to FastAPI over REST (no direct DB access) |
-| Pages | Live feed · Alerts · Review queue · Search · Analytics · Admin · Audit log |
-| Charts / maps | Plotly (charts), Folium or `st.map` (alert map) |
-| Auto-refresh | Periodic polling of API endpoints |
-| Auth | Login page → JWT stored in session state; page access by role |
+| Framework | **React** built with **Vite**; talks to FastAPI over REST (no direct database access) |
+| Routing | React Router |
+| Maps | Leaflet via `react-leaflet`: cameras, alerts and the journey line between two sightings |
+| Charts | Recharts: sightings and alerts per day, hourly pattern, recovery pipeline |
+| Pages | Live monitor · Alerts · Alert detail · Plate search and timeline · Reports and recovery · Review list · Analytics · Admin · Audit log |
+| Auth | Login page → JWT kept in memory/session; page and button access by role |
+| Auto-refresh | Server-Sent Events or polling every few seconds |
+| Node.js | A current LTS release; check the Vite documentation for its minimum |
 
-**Why not React?** A JS front-end adds a second language and build chain. Streamlit is enough for the operator console and keeps the focus on the AI pipeline.
-
-### 3.9 Background jobs
+### 3.10 Background jobs
 
 | Job | Purpose |
 |---|---|
-| Owner-response timeout | Move unanswered cases to review (FR-OWN-05) |
 | Outbox retry | Re-send failed alerts with exponential back-off (FR-ALR-04) |
-| Retention purge | Delete evidence older than the retention window (FR-ADM-04) |
-| Review SLA highlight | Mark overdue review cases (FR-HC-04) |
+| Retention purge | Delete evidence older than the retention window, except open cases (FR-EVD-03) |
+| Camera health | Mark cameras offline when no frame arrives (FR-CAP-07) |
 
 **APScheduler** runs in-process. Celery/Redis would be overkill for a single-machine prototype.
 
-### 3.10 Testing, quality and DevOps
+### 3.11 Testing, quality and DevOps
 
 | Area | Tool |
 |---|---|
 | Unit / integration tests | `pytest`, `pytest-cov`, `httpx` (API tests) |
-| Decision-engine tests | Table-driven tests from the PRD §5 matrix (100% branch coverage) |
-| Evaluation | `scikit-learn` (precision/recall, ROC), `matplotlib` / `seaborn` |
+| Decision-engine and clone-analyser tests | Table-driven tests from the PRD §5 matrix (100% branch coverage), including borderline distance/time values |
+| Evaluation | `scikit-learn` (precision/recall), `matplotlib` / `seaborn` |
 | Linting / format | `ruff`, `black`, `mypy` (optional) |
 | Hooks | `pre-commit` |
-| Security | `pip-audit`, `.env` excluded via `.gitignore` |
+| Security | `pip-audit`, `npm audit`, `.env` excluded via `.gitignore` |
 | CI (optional) | GitHub Actions: lint + unit tests (models mocked) |
 | Replay testing | Recorded video/image sessions fed through the pipeline |
 
@@ -205,9 +206,9 @@ The report can keep its original wording as "options considered".
 | Item | Minimum | Recommended |
 |---|---|---|
 | Laptop/PC | Quad-core CPU, 8 GB RAM | 16 GB RAM, NVIDIA GPU (4 GB+ VRAM) with CUDA |
-| Storage | 10 GB free (models, datasets, evidence) | 30 GB SSD |
-| Phone | Android 8+, rear camera ≥ 8 MP | 12 MP+, tripod/holder |
-| Network | Shared Wi-Fi (2.4/5 GHz) | Wi-Fi 5 GHz or USB tethering |
+| Storage | 10 GB free (models, datasets, evidence, database) | 30 GB SSD |
+| Phone | Android 8+ (or iPhone), rear camera ≥ 8 MP | 12 MP+, tripod/holder; a second phone if the app allows |
+| Network | Shared Wi-Fi (2.4/5 GHz) | Wi-Fi 5 GHz or USB connection |
 | OS | Windows 10/11 or Ubuntu 22.04+ | Ubuntu or Windows 11 with WSL2 for Linux-first tooling |
 | Training | Google Colab / Kaggle free GPU | Local GPU if available |
 
@@ -221,10 +222,11 @@ Package names only. After the first successful install, run `pip freeze > requir
 ultralytics
 opencv-python
 numpy
+paddlepaddle
+paddleocr
 easyocr
-pytesseract
-deepface
-tf-keras
+pytesseract        # optional
+scikit-learn
 # --- Backend ---
 fastapi
 uvicorn[standard]
@@ -232,25 +234,18 @@ pydantic
 pydantic-settings
 sqlalchemy
 alembic
+psycopg[binary]
 passlib[bcrypt]
 python-jose[cryptography]
 python-multipart
 slowapi
 apscheduler
 httpx
-# --- Notifications ---
-python-telegram-bot
-twilio            # optional
-# --- Dashboard ---
-streamlit
-plotly
-folium
-pandas
 # --- Quality / test ---
 pytest
 pytest-cov
-scikit-learn
 matplotlib
+pandas
 ruff
 black
 pre-commit
@@ -258,64 +253,94 @@ pip-audit
 loguru
 ```
 
-**System packages:** Tesseract OCR binary (Windows installer or `apt install tesseract-ocr`), CUDA drivers if using a GPU.
+```text
+# dashboard/package.json dependencies (reference — pin versions after first working install)
+react
+react-dom
+react-router-dom
+leaflet
+react-leaflet
+recharts
+vite                # dev dependency
+```
+
+**System packages:** PostgreSQL, Node.js (LTS), Tesseract OCR binary (optional), CUDA drivers if using a GPU.
 
 ## 6. Environment Setup (Reference)
 
-```bash
-# 1. Create an isolated environment (Python 3.10 or 3.11)
-python -m venv .venv
-source .venv/bin/activate        # Windows: .venv\Scripts\activate
+Windows Command Prompt first; Linux/macOS alternatives are in the comments.
 
-# 2. Install dependencies
+```bat
+:: 1. Create an isolated environment (Python 3.10 or 3.11)
+python -m venv .venv
+.venv\Scripts\activate          :: Linux: source .venv/bin/activate
+
+:: 2. Install dependencies
 pip install -r requirements.txt
 
-# 3. Smoke-test the whole import chain (Phase 0 exit check)
-python -c "import cv2, ultralytics, easyocr, deepface, fastapi, streamlit; print('OK')"
+:: 3. Smoke-test the whole import chain (Phase 0 exit check)
+python -c "import cv2, ultralytics, paddleocr, easyocr, fastapi, sqlalchemy, psycopg; print('OK')"
 
-# 4. Configure secrets
-cp .env.example .env             # add TELEGRAM_BOT_TOKEN, SMTP_*, JWT_SECRET
+:: 4. Create the database (PostgreSQL must be installed and running)
+psql -U postgres -c "CREATE DATABASE vehiguard;"
 
-# 5. Build the dummy database
-python scripts/seed_data.py
+:: 5. Configure secrets
+copy .env.example .env          :: Linux: cp .env.example .env
+:: set DATABASE_URL, JWT_SECRET, SMTP_* in .env
 
-# 6. Run services
-uvicorn app.main:app --reload     # API
-streamlit run dashboard/Home.py   # Dashboard
-python -m app.pipeline.run --source http://<phone-ip>:8080/video
+:: 6. Create tables and build the dummy database
+alembic upgrade head
+python scripts\seed_data.py
+
+:: 7. Run the backend
+uvicorn app.main:app --reload
+
+:: 8. Run the dashboard (second terminal)
+cd dashboard
+npm install
+npm run dev
+
+:: 9. Start a camera worker (third terminal), by camera ID
+python -m app.pipeline.run --camera CAM_A --source 0
+:: or a stream URL:  --source http://<phone-ip>:8080/video
 ```
 
 ## 7. Licences and Costs
 
 | Component | Licence (verify before redistribution) | Cost |
 |---|---|---|
-| Python, FastAPI, SQLAlchemy | PSF / MIT | Free |
+| Python, FastAPI, SQLAlchemy, Alembic | PSF / MIT | Free |
 | OpenCV | Apache-2.0 | Free |
 | Ultralytics YOLOv8 | **AGPL-3.0** | Free for academic use |
+| PaddleOCR, PaddlePaddle | Apache-2.0 | Free |
 | EasyOCR, Tesseract | Apache-2.0 | Free |
-| DeepFace | MIT (model weights have their own terms) | Free |
-| Streamlit | Apache-2.0 | Free |
-| python-telegram-bot | LGPL-3.0 | Free |
-| Telegram Bot API | Free service | Free |
+| scikit-learn | BSD-3-Clause | Free |
+| PostgreSQL | PostgreSQL Licence | Free |
+| psycopg | LGPL-3.0 | Free |
+| React, Vite, Recharts | MIT | Free |
+| Leaflet | BSD-2-Clause | Free |
+| OpenStreetMap map tiles | Data under ODbL; follow the tile usage policy and show attribution | Free for light use |
 | Gmail SMTP | Free personal tier (limits apply) | Free |
-| Twilio | Trial credits; verified numbers only | Free trial |
 | Google Colab / Kaggle | Free tier with GPU quotas | Free |
 
-Face datasets and plate datasets each carry their own licence; record the source and licence of every dataset in `docs/datasets.md`.
+Plate and vehicle datasets each carry their own licence; record the source and licence of every dataset in [datasets.md](datasets.md).
 
 ## 8. Technology Risks and Fallbacks
 
 | Risk | Fallback |
 |---|---|
-| TensorFlow/PyTorch conflict | Switch face module to InsightFace (ONNX Runtime) behind the same `FaceService` interface |
-| EasyOCR slow on CPU | Use Tesseract for the first pass; or run OCR only on the best 3 frames |
-| Phone stream unstable | USB tethering; laptop webcam; recorded video replay |
+| PaddlePaddle / PyTorch conflict | Use EasyOCR as primary behind the same `PlateOCR` interface; or run PaddleOCR in a separate environment |
+| PaddleOCR reads Indian plates poorly | Compare with EasyOCR; improve preprocessing; fine-tune the detector crop quality |
+| Phone stream unstable or only one phone connects | USB connection; laptop webcam; recorded video replay; re-register the single phone at a different location |
 | YOLO plate model weak on Indian plates | Add more own images; increase augmentation; use `yolov8s` |
-| Twilio / SMTP limits | Simulated mode and Telegram |
-| GPU unavailable | `yolov8n`, lower resolution, process fewer frames per second |
+| PostgreSQL install or service problems | Use Docker if available; as a last resort run SQLite for development only (SQLAlchemy keeps the code the same) |
+| Map tiles blocked offline | Show camera and alert markers on a plain background |
+| SMTP limits | Simulated mode and the dashboard |
+| GPU unavailable | `yolov8n`, lower resolution, fewer frames per second |
 
 ## 9. Revision History
 
 | Version | Date | Change |
 |---|---|---|
-| 1.0 | 04 Oct 2026 | Initial stack selection |
+| 1.0 | 04 Oct 2026 | Stack selection for the earlier VehiLence idea |
+| 2.0 | 09 Nov 2026 | Stack updated for VehiGuard: PaddleOCR, PostgreSQL, React, geospatial analytics; face, Telegram and Streamlit components removed |
