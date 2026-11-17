@@ -7,28 +7,12 @@ from datetime import UTC, datetime
 
 import pytest
 from sqlalchemy import text
-from sqlalchemy.exc import IntegrityError, OperationalError
+from sqlalchemy.exc import IntegrityError
 
 from app.db.models import Camera, PoliceStation, Sighting
-from app.db.session import engine
 from app.domain.states import CameraSourceType, SightingOutcome
 
 pytestmark = pytest.mark.db
-
-
-@pytest.fixture
-def session():
-    try:
-        connection = engine.connect()
-    except OperationalError:
-        pytest.skip("PostgreSQL is not reachable")
-    transaction = connection.begin()
-    from sqlalchemy.orm import Session
-
-    with Session(bind=connection) as s:
-        yield s
-    transaction.rollback()
-    connection.close()
 
 
 def add_camera(session):

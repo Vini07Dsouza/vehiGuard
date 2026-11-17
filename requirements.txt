@@ -94,7 +94,6 @@ paddleocr==3.7.0
 paddlepaddle==3.3.1
 paddlex==3.7.2
 pandas==3.0.6
-passlib==1.7.4
 pathspec==1.1.1
 pillow==12.3.0
 pip-requirements-parser==32.0.1
