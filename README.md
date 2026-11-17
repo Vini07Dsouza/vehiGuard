@@ -86,14 +86,37 @@ npm run dev
 
 The dashboard sends `/api` requests to the backend, so open http://localhost:5173. The status page shows **API: OK** and **Database: OK** when both are running.
 
-## Plate recognition test scripts
+## Plate recognition pipeline
 
-Put plate photos in `data/test_plates/`. To check accuracy, name each file after its plate number, for example `KA19AB1234.jpg`.
+The pipeline reads a camera, finds vehicles and plates, reads each plate with OCR (PaddleOCR first, then EasyOCR), checks it against the Indian plate rules, and votes over several frames. Each vehicle it finishes with becomes a **sighting** stored with evidence images in `data/evidence/`.
 
 ```bat
-python scripts\detect_plates.py   :: find plates and save crops to data\plate_crops\
-python scripts\read_plates.py     :: read the crops with EasyOCR and report accuracy
+:: Live phone camera registered in the database (CAM-A)
+python -m app.pipeline.run --camera CAM-A
+
+:: Any source: a phone address, a webcam (0), a video file or an image folder (replay)
+python -m app.pipeline.run --camera CAM-B --source data\test_sessions\cam_b.mp4
+
+:: Try it without writing to the database
+python -m app.pipeline.run --camera TEST --source data\test_plates --no-db
+
+:: Two cameras at once
+python -m app.pipeline.run --camera CAM-A --camera CAM-B
 ```
+
+A preview window shows the vehicle boxes, plate boxes and plate text. Press **q** to stop. Thresholds and model choices are set in `config/settings.yaml`.
+
+## Measuring accuracy
+
+Put plate photos in `data/test_plates/`. To score OCR, name each file after its plate number, for example `KA19AB1234.jpg`.
+
+```bat
+python scripts\evaluate.py        :: detection and OCR accuracy, saved to docs\results\
+python scripts\compare_ocr.py     :: PaddleOCR vs EasyOCR, with and without preprocessing
+python scripts\detect_plates.py   :: save plate crops to data\plate_crops\ (used by compare_ocr)
+```
+
+To train a better plate detector on a free Colab GPU, follow [docs/plate_dataset_guide.md](docs/plate_dataset_guide.md).
 
 ## Documentation
 
