@@ -1,10 +1,10 @@
-# Product Requirements Document (PRD) — VehiLence
+# Product Requirements Document (PRD) — VehiGuard
 
 | Field | Value |
 |---|---|
 | Document | `prd.md` |
-| Version | 1.0 (Draft for review) |
-| Date | 04 Oct 2026 |
+| Version | 2.0 (Draft for review) |
+| Date | 09 Nov 2026 |
 | Author | [Vinisha Marina Dsouza] |
 | Status | Baseline for development |
 | Related documents | [problem_statement.md](problem_statement.md) · [tech_stack.md](tech_stack.md) · [architecture.md](architecture.md) · [phase_definition.md](phase_definition.md) |
@@ -16,23 +16,22 @@
 ## 1. Purpose and Scope
 
 ### 1.1 Purpose
-This document defines **what** VehiLence must do (functional requirements) and **how well** it must do it (non-functional requirements). It is the contract between the problem in [problem_statement.md](problem_statement.md) and the design in [architecture.md](architecture.md).
+This document defines **what** VehiGuard must do (functional requirements) and **how well** it must do it (non-functional requirements). It is the contract between the problem in [problem_statement.md](problem_statement.md) and the design in [architecture.md](architecture.md).
 
 ### 1.2 Product summary
-VehiLence reads a vehicle's number plate from a phone-camera feed, checks it against a registry, verifies that the driver's face matches the registered owner, screens unmatched drivers against missing-person and wanted records (with human confirmation), lets the owner approve or complain, and sends verified alerts to the nearest police station.
+VehiGuard reads vehicle number plates from phone-camera feeds at several camera locations, matches them against stolen and missing vehicle records, records every accepted plate as a **sighting**, and compares sightings across locations to identify **suspected cloned plates** (physically impossible journeys and appearance differences). It collects location- and time-stamped evidence, alerts authorised police personnel, and tracks each case until recovery.
 
 ### 1.3 In scope / out of scope
-See [problem_statement.md §7](problem_statement.md). Key point: the prototype uses a phone camera and **manually created dummy databases** only.
+See [problem_statement.md §7](problem_statement.md). Key point: the prototype uses phone cameras and an **own, manually created dummy database** only. It performs **no face recognition**.
 
 ## 2. Users and Roles
 
 | Role | Description | Main interactions |
 |---|---|---|
-| **Checkpoint Operator** | Person running the capture at the checkpoint | Start/stop session, trigger face capture, see outcome |
-| **Police Operator** | Control-room user supervising alerts | Review queue: confirm / reject; acknowledge alerts |
-| **Vehicle Owner** | Registered owner of a vehicle | Receives Allow / Complain notification |
-| **Administrator** | Manages the system | Manage records, users, thresholds, retention |
-| **Evaluator / Viewer** | Examiner or guide (read-only) | View dashboard, logs, metrics |
+| **Camera Operator** | Person setting up and running the phone cameras | Register cameras, start/stop streams, check camera health |
+| **Police Officer** | Authorised officer or control-room user | Review alerts, view evidence, update alert and recovery status, create stolen/missing reports |
+| **Administrator** | Manages the system | Manage records, users, cameras, thresholds, retention |
+| **Viewer** | Examiner or guide (read-only) | View dashboard, logs and metrics |
 
 ## 3. Goals and Success Metrics
 
@@ -42,11 +41,12 @@ The targets below are **proposed** and must be confirmed (or honestly revised) a
 |---|---|---|
 | M1 | Plate detection recall (daylight, test set ≥ 100 images) | ≥ 90% |
 | M2 | Plate OCR exact-match accuracy (after voting and validation) | ≥ 85% |
-| M3 | Face verification: True Accept Rate at False Accept Rate ≤ 1% (volunteer set) | ≥ 90% |
-| M4 | End-to-end decision time (plate + face → outcome, excluding human/owner wait) | ≤ 10 s |
-| M5 | Decision-matrix correctness on scripted scenarios (§9) | 100% |
-| M6 | Watchlist alerts dispatched without a recorded human decision | 0 |
-| M7 | Alerts lost due to network failure (outbox + retry) | 0 |
+| M3 | Vehicle type accuracy / colour-family accuracy (test set ≥ 100 vehicle crops) | ≥ 90% / ≥ 80% |
+| M4 | Clone-detection correctness on the scripted clone and non-clone scenarios (S02, S05, S06, S17) | 100% |
+| M5 | Genuine multi-camera sightings wrongly flagged as suspected clones (scripted set) | 0 (count reported) |
+| M6 | Decision-matrix correctness on scripted scenarios (§9) | 100% |
+| M7 | Alerts lost due to delivery failure (outbox + retry) | 0 |
+| M8 | Accepted plate → decision and alert record created | ≤ 2 s |
 
 ## 4. Functional Requirements (FR)
 
@@ -54,159 +54,180 @@ The targets below are **proposed** and must be confirmed (or honestly revised) a
 
 | ID | Requirement | Pri | Acceptance criteria |
 |---|---|---|---|
-| FR-CAP-01 | Ingest a live video stream from an Android phone camera over the local network and extract frames at a configurable rate | M | Stream opens from a URL; ≥ 5 fps processed on the dev laptop |
-| FR-CAP-02 | Support alternative inputs (laptop webcam, video file, image folder) for testing and reproducible demos | S | Same pipeline runs from each source with a config switch |
-| FR-CAP-03 | Two-stage capture per session: **Stage A** plate, **Stage B** driver face (auto-triggered when a usable face is present, or by operator button) | M | Both stages complete and are linked to one session ID |
-| FR-CAP-04 | Every session has a unique ID, start/end time and checkpoint ID | M | Visible in logs and dashboard |
-| FR-CAP-05 | Operator console shows live preview with overlays (vehicle box, plate box, plate text, face box) | S | Overlays render at ≥ 5 fps |
-| FR-CAP-06 | Auto-reconnect when the stream drops | M | Resumes within 10 s without restart |
+| FR-CAP-01 | Ingest a live video stream from a phone camera over the local network (or USB) and extract frames at a configurable rate | M | Stream opens; ≥ 5 fps processed from one camera on the dev laptop |
+| FR-CAP-02 | Support alternative inputs (laptop webcam, video file, image folder) for testing and reproducible demos (replay mode) | S | Same pipeline runs from each source with a config switch |
+| FR-CAP-03 | Run two or more cameras at the same time, each bound to its own camera ID | M | Two cameras processed together at ≥ 3 fps each |
+| FR-CAP-04 | Maintain a camera registry (ID, name, latitude, longitude, nearest station, source). Every frame is timestamped with the **server clock** when received | M | Each sighting shows camera ID and server timestamp |
+| FR-CAP-05 | Operator console shows a live preview with overlays (vehicle box, plate box, plate text) | S | Overlays render at ≥ 5 fps |
+| FR-CAP-06 | Auto-reconnect when a stream drops | M | Resumes within 10 s without restart |
+| FR-CAP-07 | Show camera health: online/offline and time of last frame | S | Status visible on dashboard |
 
 ### 4.2 Vehicle and Plate Recognition (FR-PLT)
 
 | ID | Requirement | Pri | Acceptance criteria |
 |---|---|---|---|
-| FR-PLT-01 | Detect vehicles (car, motorcycle, bus, truck) in each frame using YOLOv8 | M | Vehicle box returned with confidence |
+| FR-PLT-01 | Detect vehicles (car, motorcycle, bus, truck) in each frame using YOLO | M | Vehicle box and class returned with confidence |
 | FR-PLT-02 | Localise the number plate and crop it with a small margin | M | Plate crop saved as evidence |
 | FR-PLT-03 | Preprocess the crop: grayscale, denoise, contrast enhancement, perspective/skew correction | M | Preprocessing improves OCR accuracy on the tilted/blurred subset (measured in Phase 2) |
-| FR-PLT-04 | Run OCR and return text with a confidence score | M | EasyOCR primary, Tesseract fallback |
-| FR-PLT-05 | Normalise text (uppercase, strip spaces/hyphens), fix position-based confusions (e.g. O↔0, I↔1, B↔8, S↔5), and validate against configurable Indian plate patterns (standard, BH series, temporary) | M | Invalid strings are rejected, not guessed |
-| FR-PLT-06 | Multi-frame voting: accept a plate only when the same text wins a majority over the last N frames (default N = 10) | M | Single-frame misreads do not reach the registry lookup |
-| FR-PLT-07 | If exact lookup fails, allow a fuzzy lookup (edit distance ≤ 1) **only for operator review**, never for automatic police alerts | S | Fuzzy hits appear in the review queue with reduced confidence |
-| FR-PLT-08 | If no valid plate is accepted within a timeout (default 10 s), outcome = `NO_PLATE` and the case goes to operator review | M | No automatic police alert is created |
-| FR-PLT-09 | Save the best vehicle frame and plate crop as evidence | S | Linked to the session |
+| FR-PLT-04 | Run OCR and return text with a confidence score | M | PaddleOCR primary, EasyOCR fallback |
+| FR-PLT-05 | Normalise text (uppercase, strip spaces/hyphens), fix position-based confusions (e.g. O↔0, I↔1, B↔8, S↔5), and validate against configurable Indian plate patterns (standard, BH series) | M | Invalid strings are rejected, not guessed |
+| FR-PLT-06 | Multi-frame voting: accept a plate only when the same text wins a majority over the last N frames (default N = 10) and mean confidence passes the gate | M | Single-frame misreads never reach the registry lookup or the clone analysis |
+| FR-PLT-07 | If no valid plate is accepted within a timeout (default 10 s), outcome = `NO_PLATE`: log it, save evidence, **raise no alert** | M | No alert is created for `NO_PLATE` |
+| FR-PLT-08 | If an accepted plate is not an exact match but is within edit distance 1 of an active stolen/missing plate, create a `POSSIBLE_MATCH` review item. It is **never** an automatic alert and never feeds clone analysis | S | Item appears in the officer's review list with reduced confidence |
+| FR-PLT-09 | Save the best vehicle frame and plate crop for each sighting | M | Linked to the sighting |
 
-### 4.3 Registry Verification (FR-REG)
-
-| ID | Requirement | Pri | Acceptance criteria |
-|---|---|---|---|
-| FR-REG-01 | Look up the accepted plate in the vehicle registry | M | Returns record or "not found" |
-| FR-REG-02 | Classify as `REGISTERED_VALID`, `TEMP_VALID`, `TEMP_EXPIRED`, `UNREGISTERED`, `STOLEN`, `MISSING`, `BLACKLISTED` | M | One status per lookup, stored with the session |
-| FR-REG-03 | Support registration types **Permanent**, **Temporary** (with `valid_until`) and **Trade/Dealer** | M | A new car on a valid temporary registration is **not** flagged |
-| FR-REG-04 | `UNREGISTERED`, `STOLEN`, `MISSING`, `BLACKLISTED` → **HIGH** police alert, subject to the OCR confidence gate (FR-PLT-06/FR-HC-05) | M | Alert created within 2 s of the decision |
-| FR-REG-05 | `TEMP_EXPIRED` → **MEDIUM** dashboard alert and continue to face verification | S | Alert visible; flow continues |
-| FR-REG-06 | Store optional vehicle attributes (make, model, colour) for future clone detection | C | Fields present in schema |
-
-### 4.4 Face Verification (FR-FACE)
+### 4.3 Registry and Stolen/Missing Matching (FR-REG)
 
 | ID | Requirement | Pri | Acceptance criteria |
 |---|---|---|---|
-| FR-FACE-01 | Detect faces in the driver capture and select the driver (largest/most central face) | M | One face selected, or `FACE_UNVERIFIABLE` |
-| FR-FACE-02 | Quality gate: minimum face size, sharpness, brightness, acceptable pose. Allow up to K recapture attempts (default 3) | M | Poor images are rejected with a reason |
-| FR-FACE-03 | Compute a face embedding and compare with the registered owner's embedding(s) using cosine distance and a configurable threshold | M | Score and threshold stored with the session |
-| FR-FACE-04 | Outcomes are exactly `MATCH`, `MISMATCH`, `UNVERIFIABLE`; `UNVERIFIABLE` goes to operator review and is **never** treated as `MISMATCH` or `MATCH` | M | Verified by unit tests |
-| FR-FACE-05 | Support several reference images per owner (use best similarity) | S | Enrolment accepts 1–5 images |
-| FR-FACE-06 | Store embeddings for matching; store evidence images only per the retention policy | M | Purge job removes expired images |
-| FR-FACE-07 | Basic liveness check (e.g. blink or head-turn) to resist photo spoofing | C | Photo-of-photo test is rejected |
+| FR-REG-01 | Look up the accepted plate in the vehicle registry | M | Returns the record or "not found" |
+| FR-REG-02 | The registry stores plate, vehicle type, make, model, colour and a fictional owner name | M | Fields present in dummy data |
+| FR-REG-03 | Maintain stolen/missing reports (report type, fictional FIR reference, reported time and place, recovery status). Match accepted plates against reports whose status is not `RECOVERED` or `CLOSED` | M | Matching report found for every stolen/missing test plate |
+| FR-REG-04 | A stolen or missing match raises a **HIGH** alert within 2 s of the decision, subject to the OCR confidence gate | M | Alert created and routed |
+| FR-REG-05 | A plate that is not in the registry is logged as `UNKNOWN_PLATE` (INFO), still stored as a sighting and still used for clone analysis. It raises an alert only if the config switch `FLAG_UNREGISTERED` is on (open decision D-01) | M | Unknown plate creates a sighting and no alert by default |
 
-### 4.5 Watchlist Screening (FR-WL)
+### 4.4 Sightings (FR-SIG)
 
 | ID | Requirement | Pri | Acceptance criteria |
 |---|---|---|---|
-| FR-WL-01 | On `MISMATCH`, and **before** the owner is notified, compare the driver's embedding against `wanted_list` and `missing_reports` (1:N) | M | Both tables searched in every mismatch case |
-| FR-WL-02 | Use a watchlist threshold **stricter** than the owner-verification threshold; return the top-K candidates (default K = 3) with scores | M | Thresholds independently configurable |
-| FR-WL-03 | Any candidate above threshold creates a review case in state `PENDING_HUMAN`; **no automatic police alert**; the owner notification is held while pending | M | Verified by test (M6) |
-| FR-WL-04 | Distinguish `WANTED_MATCH` from `MISSING_PERSON_MATCH` with separate alert templates and priorities | M | Different alert types in the dashboard |
-| FR-WL-05 | Configurable scope: `mismatch_only` (default) or `all_faces` (screen every captured driver, including owner matches) | S | Switch in config; documented as open decision D-02 |
+| FR-SIG-01 | Every accepted plate creates a sighting: camera, plate, OCR confidence, server timestamp, vehicle type, colour family, best frame and plate crop | M | One row per sighting with all fields |
+| FR-SIG-02 | De-duplicate: the same plate at the same camera within `SIGHTING_COOLDOWN_S` (default 30 s) updates one sighting and keeps the best-quality frame | M | A vehicle waiting in view creates one sighting |
+| FR-SIG-03 | Provide a per-plate sighting timeline across all cameras | S | Timeline shows camera, time and thumbnail |
 
-### 4.6 Human Confirmation (FR-HC)
+### 4.5 Clone Detection (FR-CLN)
 
 | ID | Requirement | Pri | Acceptance criteria |
 |---|---|---|---|
-| FR-HC-01 | Review queue for police operators showing: driver image, candidate image(s), similarity score, plate, location, time | M | All fields visible on one screen |
-| FR-HC-02 | Operator actions: **Confirm** (dispatch police alert) or **Reject** (not a match → continue to owner notification) | M | Exactly one decision per case |
-| FR-HC-03 | Record operator ID, decision, timestamp and optional note in the audit log | M | Entry is append-only |
-| FR-HC-04 | Cases unresolved after a configurable time stay `PENDING` and are highlighted; they are **never** auto-dispatched | S | No auto-dispatch path exists in code |
-| FR-HC-05 | The same queue also handles `NO_PLATE`, `FACE_UNVERIFIABLE`, fuzzy plate matches, low-confidence OCR and owner timeouts | M | Each case shows its reason code |
+| FR-CLN-01 | For each new sighting, compare it with the same plate's earlier sightings at **other** cameras within `CLONE_WINDOW_H` (default 24 h) | M | Same-camera sightings are never compared |
+| FR-CLN-02 | **Impossible-journey rule:** with *d* = Haversine distance between the two camera coordinates and *Δt* = time gap, flag when `d ≥ MIN_CLONE_DISTANCE_KM` and `d > MAX_PLAUSIBLE_SPEED_KMH × (Δt + TIME_TOLERANCE_S)`. Straight-line distance never exceeds road distance, so the rule is conservative | M | Verified with scripted cases, including borderline values |
+| FR-CLN-03 | Store the journey: from/to camera, distance, time gap and required speed | M | Visible on the alert detail |
+| FR-CLN-04 | Combine the three signals (impossible journey, appearance mismatch between sightings, appearance mismatch with the registry) to set alert type and severity according to §5 | M | Each matrix row covered by a test |
+| FR-CLN-05 | Attach both sightings' evidence side by side to the alert | M | Alert detail shows both images, cameras and times |
+| FR-CLN-06 | Alert wording says **"suspected"** clone. Only an officer can mark a case `CLOSED_CONFIRMED` | M | No automatic "confirmed" state |
+| FR-CLN-07 | Only sightings whose plate passed the OCR gate are compared | M | Low-confidence reads never create a clone alert |
 
-### 4.7 Owner Confirmation (FR-OWN)
+### 4.6 Vehicle Appearance (FR-APP)
 
 | ID | Requirement | Pri | Acceptance criteria |
 |---|---|---|---|
-| FR-OWN-01 | Store owner contact channels (Telegram chat ID, phone, email) in the owner record | M | Present in dummy data |
-| FR-OWN-02 | On mismatch with no watchlist hit (or hit rejected), send the owner a notification with plate, time, location, driver snapshot and two actions: **Allow**, **Complain** | M | Message received with both buttons |
-| FR-OWN-03 | **Allow** → case closed as `AUTHORIZED_DRIVER`, logged, no police alert | M | Case state updated |
-| FR-OWN-04 | **Complain** → HIGH `UNAUTHORIZED_USE` alert to the nearest police station | M | Alert created and routed |
-| FR-OWN-05 | Configurable response timeout (production default 10 min; demo default 2 min). On timeout the case moves to the operator review queue (**open decision D-01**) | M | Timeout path covered by test |
-| FR-OWN-06 | Owner responses are authenticated (bot chat-ID binding or signed one-time token), single-use and expire | M | Replayed or forged responses are rejected |
-| FR-OWN-07 | Only the first response counts; later responses are ignored and logged | S | Idempotency test passes |
+| FR-APP-01 | Determine vehicle type (car, motorcycle, bus, truck) from the detector class, by majority over the voting frames | M | Type stored on the sighting |
+| FR-APP-02 | Determine the dominant body colour and map it to a **colour family** (white/silver/grey, black, red, blue, green, yellow/orange, brown, other), by majority over the voting frames | M | Colour family stored on the sighting |
+| FR-APP-03 | **Registry check (RM):** compare the observed type and colour family with the registry record | M | Mismatch recorded with reason code |
+| FR-APP-04 | **Sighting check (AM):** compare the observed type and colour family with the plate's earlier sighting | M | Mismatch recorded with reason code |
+| FR-APP-05 | If colour or type cannot be determined (poor light, occlusion), the value is `UNKNOWN`. `UNKNOWN` is **never** treated as a mismatch | M | Verified by unit tests |
+| FR-APP-06 | Optional additional signal: similarity of a pretrained image-feature embedding of the vehicle crop | C | Score stored; not used for alerts unless enabled |
+
+### 4.7 Evidence (FR-EVD)
+
+| ID | Requirement | Pri | Acceptance criteria |
+|---|---|---|---|
+| FR-EVD-01 | Save the best vehicle frame and the plate crop for each sighting | M | Files linked to the sighting |
+| FR-EVD-02 | Evidence records the camera ID, coordinates and server timestamp | M | Shown with the image on the dashboard |
+| FR-EVD-03 | Retention: purge evidence older than `EVIDENCE_RETENTION_DAYS` (default 30), **except** evidence linked to an open alert or case | M | Verified with back-dated test data |
+| FR-EVD-04 | Store a SHA-256 hash of each evidence file when saved, to show it was not altered | S | Hash shown on detail view |
 
 ### 4.8 Alerts and Notifications (FR-ALR)
 
 | ID | Requirement | Pri | Acceptance criteria |
 |---|---|---|---|
-| FR-ALR-01 | Alert payload contains alert ID, type, severity, plate, checkpoint, coordinates, timestamp, reason code, scores and evidence images | M | Schema validated |
-| FR-ALR-02 | Alert types: `UNREGISTERED_VEHICLE`, `STOLEN_VEHICLE`, `MISSING_VEHICLE`, `BLACKLISTED_VEHICLE`, `UNAUTHORIZED_USE`, `WANTED_PERSON_MATCH`, `MISSING_PERSON_MATCH`, `EXPIRED_REGISTRATION` | M | Each type produced by a test scenario |
-| FR-ALR-03 | Deliver to the nearest station by dashboard plus email (SMTP); SMS (Twilio) optional | M | Email received or logged in simulated mode |
+| FR-ALR-01 | Alert payload contains alert ID, type, severity, plate, camera, coordinates, timestamp, reason codes, scores and evidence images | M | Schema validated |
+| FR-ALR-02 | Alert types: `STOLEN_VEHICLE`, `MISSING_VEHICLE`, `SUSPECTED_CLONE`, `APPEARANCE_MISMATCH`, `UNREGISTERED_VEHICLE` (only when `FLAG_UNREGISTERED` is on) | M | Each type produced by a test scenario |
+| FR-ALR-03 | Deliver to the nearest station by dashboard plus email (SMTP). HIGH and MEDIUM alerts are emailed; LOW alerts are dashboard-only | M | Email received or logged in simulated mode |
 | FR-ALR-04 | Reliable delivery using an outbox with retry and exponential back-off | M | No loss after a simulated network outage |
-| FR-ALR-05 | De-duplicate: same plate + same alert type within a cooldown (default 15 min) merges into one alert | S | Second detection increments a counter |
+| FR-ALR-05 | De-duplicate: the same plate and alert type within a cooldown (default 15 min) merges into one alert and increments a counter | S | Second detection increments the counter |
 | FR-ALR-06 | **Simulated mode** sends alerts to a mock station inbox; real channels are enabled by config | M | Demo works with no external services |
-| FR-ALR-07 | Track station acknowledgement: `SENT → DELIVERED → ACKNOWLEDGED → RESOLVED` | S | Status visible on dashboard |
+| FR-ALR-07 | Alert status workflow: `NEW → ACKNOWLEDGED → UNDER_INVESTIGATION → CLOSED_CONFIRMED` or `CLOSED_FALSE_ALARM`. Each change records user, time and note | M | Status visible on dashboard; history stored |
 
-### 4.9 Geo-location and Routing (FR-GEO)
-
-| ID | Requirement | Pri | Acceptance criteria |
-|---|---|---|---|
-| FR-GEO-01 | Maintain a checkpoint registry with name and coordinates | M | Each session tagged with a checkpoint |
-| FR-GEO-02 | Maintain a police-station table; select the nearest station by great-circle (Haversine) distance | M | Correct station for all test checkpoints |
-| FR-GEO-03 | Optionally use the phone's GPS instead of fixed checkpoint coordinates | C | Falls back to the checkpoint if unavailable |
-
-### 4.10 Dashboard (FR-DSH)
+### 4.9 Case and Recovery Tracking (FR-CASE)
 
 | ID | Requirement | Pri | Acceptance criteria |
 |---|---|---|---|
-| FR-DSH-01 | Login with role-based access | M | Unauthorised pages blocked |
-| FR-DSH-02 | Live feed of recent detections with outcome badges | M | Updates within 5 s |
+| FR-CASE-01 | Each stolen/missing report has a recovery status: `REPORTED`, `DETECTED`, `UNDER_INVESTIGATION`, `RECOVERED`, `CLOSED` | M | Status stored on the report |
+| FR-CASE-02 | When a stolen/missing alert is created and the report is `REPORTED`, the status moves automatically to `DETECTED` | M | Verified by scenario S03 |
+| FR-CASE-03 | Officers move the status along the allowed transitions in [architecture.md §6.3](architecture.md); each change records user, time, optional location and a note | M | Disallowed transitions are rejected |
+| FR-CASE-04 | Officers can create a stolen/missing report for a vehicle in the registry | M | Report appears in matching immediately |
+| FR-CASE-05 | Dashboard shows the number of reports in each recovery status and the time from report to detection | S | Chart renders from real data |
+
+### 4.10 Geo-location and Routing (FR-GEO)
+
+| ID | Requirement | Pri | Acceptance criteria |
+|---|---|---|---|
+| FR-GEO-01 | Maintain camera and police-station tables with coordinates | M | Present in the seed data |
+| FR-GEO-02 | Select the nearest station for a camera by Haversine distance | M | Correct station for all test cameras |
+| FR-GEO-03 | Map view with camera markers, alert markers and the journey line between the two sightings of a suspected clone | S | Map renders from real data |
+| FR-GEO-04 | Optionally use the phone's GPS instead of fixed camera coordinates | C | Falls back to the registered coordinates if unavailable |
+
+### 4.11 Dashboard (FR-DSH)
+
+| ID | Requirement | Pri | Acceptance criteria |
+|---|---|---|---|
+| FR-DSH-01 | Login with role-based access | M | Unauthorised pages and actions blocked |
+| FR-DSH-02 | Live monitor: recent sightings with outcome badges and camera status | M | Updates within 5 s |
 | FR-DSH-03 | Alerts page with filters (type, severity, status, date, station) | M | Filters return correct rows |
-| FR-DSH-04 | Review queue page (FR-HC) | M | Confirm/Reject work end-to-end |
-| FR-DSH-05 | Search by plate, date and outcome; detail view with evidence and all scores | M | Detail shows reason codes |
-| FR-DSH-06 | Show match confidence scores and thresholds used | S | Visible in detail view |
-| FR-DSH-07 | Analytics: outcomes per day, hourly pattern, top flagged plates, alert map | S | Charts render from real data |
-| FR-DSH-08 | Export logs and reports to CSV (and PDF if time permits) | S | File downloads correctly |
+| FR-DSH-04 | Alert detail: reason codes, scores, evidence side by side, journey map and status controls | M | All fields on one screen |
+| FR-DSH-05 | Search by plate and date; per-plate sighting timeline | M | Timeline shows all cameras |
+| FR-DSH-06 | Stolen/missing reports page with recovery status controls | M | Status change end-to-end works |
+| FR-DSH-07 | Analytics: sightings and alerts per day, hourly pattern, top flagged plates, alert map, recovery pipeline | S | Charts render from real data |
+| FR-DSH-08 | Export logs and reports to CSV | S | File downloads correctly |
+| FR-DSH-09 | Review list for `POSSIBLE_MATCH` items | S | Officer can dismiss or promote to an alert |
 
-### 4.11 Administration and Data (FR-ADM)
+### 4.12 Administration and Data (FR-ADM)
 
 | ID | Requirement | Pri | Acceptance criteria |
 |---|---|---|---|
-| FR-ADM-01 | Manage vehicles, owners (with face enrolment), `wanted_list`, `missing_reports`, stations and checkpoints via admin UI or scripts | M | CRUD operations succeed |
+| FR-ADM-01 | Manage vehicles, stolen/missing reports, stations, cameras and users via the admin UI or scripts | M | CRUD operations succeed |
 | FR-ADM-02 | Reproducible seed script that builds the full dummy database | M | One command rebuilds the dataset |
-| FR-ADM-03 | Configuration panel (or file) for thresholds, timeouts, cooldowns and scope | S | Changes apply without code edits |
-| FR-ADM-04 | Retention job purges evidence images older than the retention period (default 30 days) | M | Verified with back-dated test data |
+| FR-ADM-03 | Configuration file or panel for thresholds, timeouts, cooldowns and switches | S | Changes apply without code edits |
+| FR-ADM-04 | Retention job implements FR-EVD-03 | M | Verified with back-dated test data |
 
-### 4.12 Logging, Audit and Evaluation (FR-LOG)
-
-| ID | Requirement | Pri | Acceptance criteria |
-|---|---|---|---|
-| FR-LOG-01 | Log every session: plate, scores, outcome, reason codes, timings | M | Row per session |
-| FR-LOG-02 | Append-only audit log for operator, owner and admin actions (optionally hash-chained) | M | No update/delete path |
-| FR-LOG-03 | Evaluation script outputs precision, recall, OCR accuracy, FAR/FRR and latency tables | M | Produces report-ready tables |
-
-### 4.13 Authentication and Authorisation (FR-AUTH)
+### 4.13 Logging, Audit and Evaluation (FR-LOG)
 
 | ID | Requirement | Pri | Acceptance criteria |
 |---|---|---|---|
-| FR-AUTH-01 | Roles: Admin, Police Operator, Checkpoint Operator, Viewer | M | Permission matrix enforced |
-| FR-AUTH-02 | Passwords stored hashed (bcrypt/argon2); token-based API sessions | M | No plaintext secrets in DB |
+| FR-LOG-01 | Log every sighting and decision: plate, scores, signals, outcome, reason codes, timings | M | Row per sighting |
+| FR-LOG-02 | Append-only audit log for officer, operator and admin actions (optionally hash-chained) | M | No update/delete path |
+| FR-LOG-03 | Evaluation script outputs plate, appearance, clone-detection and latency tables | M | Produces report-ready tables |
+
+### 4.14 Authentication and Authorisation (FR-AUTH)
+
+| ID | Requirement | Pri | Acceptance criteria |
+|---|---|---|---|
+| FR-AUTH-01 | Roles: Admin, Police Officer, Camera Operator, Viewer | M | Permission matrix enforced |
+| FR-AUTH-02 | Passwords stored hashed (bcrypt/argon2); token-based API sessions | M | No plaintext secrets in the database |
 | FR-AUTH-03 | Session timeout and logout | S | Idle session expires |
 
 ## 5. Decision Matrix (Authoritative Business Rules)
 
-| # | Plate result | Face result | Watchlist | Human / owner step | Outcome | Severity |
-|---|---|---|---|---|---|---|
-| 1 | No valid plate or low OCR confidence | — | — | Operator review | `NO_PLATE` / `LOW_CONFIDENCE` | Review |
-| 2 | Not in registry | — | — | — | Police alert `UNREGISTERED_VEHICLE` | HIGH |
-| 3 | `STOLEN` / `MISSING` / `BLACKLISTED` | — | — | — | Police alert (flag-specific type) | HIGH |
-| 4 | `TEMP_EXPIRED` | continue to face check | — | — | Dashboard alert `EXPIRED_REGISTRATION`, then continue | MEDIUM |
-| 5 | Valid (permanent or valid temporary) | `MATCH` | (skipped unless scope = `all_faces`) | — | **PASS**, logged | INFO |
-| 6 | Valid | `UNVERIFIABLE` | — | Operator review | `FACE_UNVERIFIABLE` | Review |
-| 7 | Valid | `MISMATCH` | Candidate found | Operator **Confirm** | Police alert `WANTED_PERSON_MATCH` or `MISSING_PERSON_MATCH` | HIGH |
-| 8 | Valid | `MISMATCH` | Candidate found | Operator **Reject** | Continue to row 9 | — |
-| 9 | Valid | `MISMATCH` | No candidate | Owner **Allow** | `AUTHORIZED_DRIVER`, logged | INFO |
-| 10 | Valid | `MISMATCH` | No candidate | Owner **Complain** | Police alert `UNAUTHORIZED_USE` | HIGH |
-| 11 | Valid | `MISMATCH` | No candidate | Owner timeout | Operator review (D-01) | Review |
+**Signals.** For each accepted plate the engine computes:
 
-> **Safety rule:** an outcome of "unverifiable", "no plate" or "timeout" can only lead to *review*, never to a pass and never to an automatic police alert.
->
-> **Tipping-off rule:** while a watchlist candidate is pending human review, the owner is **not** notified.
+- **IJ** — impossible journey against an earlier sighting at another camera (FR-CLN-02)
+- **AM** — appearance mismatch between this sighting and the earlier sighting (FR-APP-04)
+- **RM** — appearance mismatch between this sighting and the registry record (FR-APP-03)
+
+`UNKNOWN` appearance values never produce AM or RM.
+
+| # | Condition | Outcome | Alert type | Severity | Delivery |
+|---|---|---|---|---|---|
+| 1 | No valid plate accepted, or confidence below the gate | `NO_PLATE` / `LOW_CONFIDENCE`: log and save evidence | — | — | No alert |
+| 2 | Plate matches an active `STOLEN` report | Alert; report → `DETECTED` (if `REPORTED`) | `STOLEN_VEHICLE` | HIGH | Dashboard + email |
+| 3 | Plate matches an active `MISSING` report | Alert; report → `DETECTED` (if `REPORTED`) | `MISSING_VEHICLE` | HIGH | Dashboard + email |
+| 4 | IJ **and** (AM **or** RM) | Suspected clone | `SUSPECTED_CLONE` | HIGH | Dashboard + email |
+| 5 | IJ only | Suspected clone, officer to verify | `SUSPECTED_CLONE` | MEDIUM | Dashboard + email |
+| 6 | No IJ, but AM **or** RM | Appearance mismatch, officer to review | `APPEARANCE_MISMATCH` | LOW | Dashboard only |
+| 7 | Plate in registry, no report, no signals | **PASS**, logged | — | INFO | — |
+| 8 | Plate not in registry, no IJ | `UNKNOWN_PLATE`, logged (alert only if `FLAG_UNREGISTERED`) | — / `UNREGISTERED_VEHICLE` | INFO / MEDIUM | — / Dashboard + email |
+
+**Notes**
+
+- Rows 2 and 3 are evaluated **independently** of rows 4 to 6. One sighting can raise more than one alert (for example a stolen vehicle that also shows IJ). Row 7 applies only when no other row raised an alert.
+- A stolen or missing match where the observed appearance differs from the registry (RM) keeps its HIGH alert and adds the reason code `APPEARANCE_MISMATCH`, because the plate may have been copied from a stolen vehicle.
+- Row 8 with IJ follows rows 4 or 5, using AM only (there is no registry record to compare).
+
+**Safety rules**
+
+1. `NO_PLATE`, `LOW_CONFIDENCE`, `UNKNOWN` appearance and `POSSIBLE_MATCH` can only lead to *logging or officer review*, never to a pass, never to an automatic HIGH alert, and never into clone analysis.
+2. Every alert is a **lead**, not a verdict. Only an officer can set `CLOSED_CONFIRMED`.
+3. The decision engine is deterministic: the same inputs and configuration always give the same outcome.
 
 ## 6. Non-Functional Requirements (NFR)
 
@@ -215,10 +236,10 @@ The targets below are **proposed** and must be confirmed (or honestly revised) a
 | ID | Requirement | Target |
 |---|---|---|
 | NFR-PERF-01 | Plate recognition result after the plate is stable in view | ≤ 3 s (GPU), ≤ 6 s (CPU) |
-| NFR-PERF-02 | Face capture to verification result | ≤ 2 s |
-| NFR-PERF-03 | End-to-end decision (excluding human/owner wait) | ≤ 10 s |
-| NFR-PERF-04 | Sustained processing rate on the dev laptop | ≥ 5 fps |
-| NFR-PERF-05 | Dashboard page load with ≥ 10,000 log rows | ≤ 2 s |
+| NFR-PERF-02 | Accepted plate → decision and alert record | ≤ 2 s |
+| NFR-PERF-03 | Sustained processing rate on the dev laptop | ≥ 5 fps (one camera); ≥ 3 fps each (two cameras) |
+| NFR-PERF-04 | Dashboard page load with ≥ 10,000 sighting rows | ≤ 2 s |
+| NFR-PERF-05 | Clone analysis for one sighting (database query + rule) | ≤ 500 ms |
 
 ### 6.2 Accuracy and Correctness
 
@@ -226,52 +247,53 @@ The targets below are **proposed** and must be confirmed (or honestly revised) a
 |---|---|---|
 | NFR-ACC-01 | Plate detection recall (daylight) | ≥ 90% |
 | NFR-ACC-02 | Plate OCR exact-match | ≥ 85% |
-| NFR-ACC-03 | Face verification TAR at FAR ≤ 1% | ≥ 90% |
-| NFR-ACC-04 | Watchlist false matches are measured and reported; none dispatch without human review | Reported |
+| NFR-ACC-03 | Vehicle type accuracy / colour-family accuracy | ≥ 90% / ≥ 80% |
+| NFR-ACC-04 | False clone alerts are measured and reported | Reported |
 | NFR-ACC-05 | No silent failures: every non-pass state has a reason code | 100% |
-| NFR-ACC-06 | Decision engine is deterministic: same inputs and config give the same outcome | 100% |
+| NFR-ACC-06 | Decision engine is deterministic | 100% |
 
 ### 6.3 Reliability and Availability
 
 | ID | Requirement |
 |---|---|
 | NFR-REL-01 | Alert delivery retried at least 5 times with exponential back-off, then flagged `FAILED` on the dashboard |
-| NFR-REL-02 | Stream interruption does not crash the pipeline; auto-reconnect within 10 s |
-| NFR-REL-03 | Database writes for a session are transactional (no half-written outcomes) |
-| NFR-REL-04 | Health-check endpoint reports status of models, database, stream and notifier |
-| NFR-REL-05 | A failing external service (Telegram, SMTP, Twilio) must not block detection or decisioning |
+| NFR-REL-02 | A stream interruption does not crash the pipeline; auto-reconnect within 10 s; other cameras keep running |
+| NFR-REL-03 | Database writes for a sighting and its alerts are transactional (no half-written outcomes) |
+| NFR-REL-04 | Health-check endpoint reports status of models, database, cameras and notifier |
+| NFR-REL-05 | A failing external service (SMTP) must not block detection or decisioning |
 
 ### 6.4 Security
 
 | ID | Requirement |
 |---|---|
-| NFR-SEC-01 | Secrets (API keys, SMTP password, bot token) kept in environment variables / `.env`, never committed to the repository |
+| NFR-SEC-01 | Secrets (SMTP password, JWT secret, database password) kept in environment variables / `.env`, never committed to the repository |
 | NFR-SEC-02 | Passwords hashed (bcrypt/argon2); minimum password policy enforced |
-| NFR-SEC-03 | Embeddings and evidence images served only through authenticated endpoints |
-| NFR-SEC-04 | Owner-action tokens are signed, single-use and expire no later than the response timeout |
-| NFR-SEC-05 | Strict input validation on every API endpoint (typed request models) |
-| NFR-SEC-06 | Rate limiting on public-facing endpoints (e.g. owner response link) |
-| NFR-SEC-07 | HTTPS for anything exposed beyond the local network |
-| NFR-SEC-08 | Dependency vulnerability scan (`pip-audit`) before the final demo |
+| NFR-SEC-03 | Evidence images served only through authenticated endpoints |
+| NFR-SEC-04 | Strict input validation on every API endpoint (typed request models) |
+| NFR-SEC-05 | Rate limiting on the login endpoint |
+| NFR-SEC-06 | HTTPS for anything exposed beyond the local network |
+| NFR-SEC-07 | Dependency vulnerability scan (`pip-audit`, `npm audit`) before the final demo |
+| NFR-SEC-08 | The React dashboard calls only the VehiGuard API, with CORS limited to the dashboard origin |
 
 ### 6.5 Privacy and Compliance
 
 | ID | Requirement |
 |---|---|
-| NFR-PRV-01 | Only consented volunteer data or synthetic/public-licensed datasets; consent records retained |
-| NFR-PRV-02 | Data minimisation: embeddings for matching; evidence images purged after the retention period (default 30 days) |
+| NFR-PRV-01 | Only consented volunteer data, own captures, or public-licensed datasets; consent records retained |
+| NFR-PRV-02 | Data minimisation: evidence images purged after the retention period (default 30 days), except for open cases |
 | NFR-PRV-03 | Purpose limitation: data used only for the functions defined in this PRD |
-| NFR-PRV-04 | Right to removal: an admin can delete a person's face data on request, including embeddings and evidence |
-| NFR-PRV-05 | Every watchlist-driven action has a recorded human decision (HITL) |
-| NFR-PRV-06 | Role-based access limits who can see faces and watchlist data |
+| NFR-PRV-04 | Right to removal: an admin can delete a volunteer's vehicle records and evidence on request |
+| NFR-PRV-05 | No face detection, recognition or storage of faces for matching |
+| NFR-PRV-06 | Role-based access limits who can see evidence and reports |
+| NFR-PRV-07 | Every alert status change has a recorded human actor |
 
 ### 6.6 Usability
 
 | ID | Requirement |
 |---|---|
-| NFR-USA-01 | A new operator can run a checkpoint session after ≤ 5 minutes of instruction |
-| NFR-USA-02 | Outcomes use clear colour-coded badges (PASS / REVIEW / ALERT) plus text, not colour alone |
-| NFR-USA-03 | Owner notification is readable on a phone screen and requires one tap to respond |
+| NFR-USA-01 | A new operator can register a camera and run a session after ≤ 5 minutes of instruction |
+| NFR-USA-02 | Severity uses colour-coded badges **plus text**, not colour alone |
+| NFR-USA-03 | Alert detail shows the reason in plain language ("Seen 38 km away 6 minutes earlier") |
 | NFR-USA-04 | Error messages state what happened and what to do next |
 
 ### 6.7 Maintainability and Testability
@@ -279,8 +301,8 @@ The targets below are **proposed** and must be confirmed (or honestly revised) a
 | ID | Requirement |
 |---|---|
 | NFR-MNT-01 | Modular code with clear interfaces between capture, vision, decision, notification and storage |
-| NFR-MNT-02 | Decision engine has 100% branch coverage against the matrix in §5; overall unit-test coverage ≥ 70% |
-| NFR-MNT-03 | Type hints, linting (ruff) and formatting (black) enforced in CI/pre-commit |
+| NFR-MNT-02 | Decision engine and clone analyser have 100% branch coverage against §5; overall unit-test coverage ≥ 70% |
+| NFR-MNT-03 | Type hints, linting (ruff) and formatting (black) enforced by pre-commit |
 | NFR-MNT-04 | Recorded-session replay mode gives deterministic, repeatable tests |
 | NFR-MNT-05 | All thresholds and timeouts are configuration, not hard-coded |
 
@@ -289,52 +311,53 @@ The targets below are **proposed** and must be confirmed (or honestly revised) a
 | ID | Requirement |
 |---|---|
 | NFR-POR-01 | Runs on Windows 10/11 and Ubuntu 22.04+ with Python 3.10 or 3.11 |
-| NFR-POR-02 | Works with any phone camera app that exposes an MJPEG/RTSP stream; webcam fallback |
+| NFR-POR-02 | Works with any phone camera app that exposes a stream or appears as a webcam device; webcam and video-file fallbacks |
 | NFR-POR-03 | Optional Docker setup for repeatable environments |
 
 ### 6.9 Observability and Explainability
 
 | ID | Requirement |
 |---|---|
-| NFR-OBS-01 | Structured logs with a correlation (session) ID on every line |
-| NFR-OBS-02 | Stage timings recorded per session (capture, detect, OCR, face, decision) |
-| NFR-OBS-03 | Every decision stores reason codes and the scores/thresholds behind them |
+| NFR-OBS-01 | Structured logs with a correlation (sighting) ID on every line |
+| NFR-OBS-02 | Stage timings recorded per sighting (capture, detect, OCR, appearance, decision) |
+| NFR-OBS-03 | Every decision stores reason codes and the values behind them (distance, gap, required speed, colours compared) |
 
 ### 6.10 Scalability (Design Headroom)
 
 | ID | Requirement |
 |---|---|
-| NFR-SCL-01 | The prototype serves one active checkpoint, but the data model supports multiple checkpoints and stations |
-| NFR-SCL-02 | Storage and search layers are replaceable (SQLite → PostgreSQL; NumPy → FAISS) without changing business logic |
+| NFR-SCL-01 | The prototype serves two or three cameras, but the data model supports many cameras and stations |
+| NFR-SCL-02 | The storage layer is replaceable (PostgreSQL → PostgreSQL with PostGIS) and the geospatial calculation sits behind one function, so it can be swapped without changing business logic |
 
 ### 6.11 Ethical Requirements
 
 | ID | Requirement |
 |---|---|
-| NFR-ETH-01 | Face-verification performance is evaluated across varied lighting, angles and accessories, and results are reported honestly, including failures |
-| NFR-ETH-02 | The report states the limitations and the potential for bias in face models |
-| NFR-ETH-03 | The system is positioned as decision support; humans make all watchlist-based decisions |
+| NFR-ETH-01 | OCR and appearance performance is evaluated across varied lighting, angles, dirt and distance, and reported honestly, including failures |
+| NFR-ETH-02 | The report states the limitations of cross-location analysis ([problem_statement.md §3.3](problem_statement.md)) |
+| NFR-ETH-03 | The system is decision support; a human decides on every alert |
 
 ## 7. Data Requirements
 
 | Dataset | Minimum size (prototype) | Source | Notes |
 |---|---|---|---|
-| Plate images (detector training/validation) | 500–1,000 labelled | Public datasets + own photos of dummy plates | Check dataset licences |
+| Plate images (detector training/validation) | 500–1,000 labelled | Public datasets + own photos | Check dataset licences |
 | Plate test set (held out) | ≥ 100 images, varied angle/light/blur | Own captures | Never used for training |
-| Vehicles (registry) | ~20–30 records | Manually created | Include permanent, temporary valid/expired, stolen, missing, blacklisted |
-| Owners with faces | 8–12 consenting volunteers | Volunteers | 3–5 reference images each |
-| Family/other drivers | 4–6 consenting volunteers | Volunteers | For Allow/Complain scenarios |
-| `wanted_list` | 3–5 | Consenting volunteers or synthetic faces | **No real wanted persons** |
-| `missing_reports` | 3–5 | Consenting volunteers or synthetic faces | **No real missing persons** |
-| Police stations / checkpoints | 3 / 2 | Manually created | Real-looking coordinates, fictional names allowed |
+| Vehicles (registry) | ~20–30 records | Manually created | Mixed types and colours; fictional owners; include the test vehicles |
+| Stolen / missing reports | 4–6 | Manually created | Fictional FIR references; mix of `STOLEN` and `MISSING`; different recovery statuses |
+| Volunteer vehicles with photos/video | 6–10 vehicles | Consenting volunteers or own captures | Includes real plates; consent form in [consent_form.md](consent_form.md) |
+| Appearance test set | ≥ 100 vehicle crops with type and colour labels | Own captures + public images | Labelled by hand |
+| Police stations / cameras | 3 / 3 | Manually created | Camera coordinates are assigned (simulated) |
+| Scenario recordings | One clip or image set per scenario S01–S17 | Own captures | For replay mode |
 
 ## 8. Assumptions, Dependencies and Constraints
 
-- Phone and laptop are on the same Wi-Fi network (or USB tethering) during the demo.
-- Owner Telegram chat IDs are pre-registered in the dummy data.
-- `missing_reports` is interpreted as **missing-person** records with reference face images (assumption A4).
-- Free-tier services only (Telegram Bot API, SMTP, Twilio trial limited to verified numbers).
-- All external dependencies (models, libraries) are installed and tested **before** Phase 2 to avoid late environment issues.
+- Phones and laptop are on the same Wi-Fi network (or connected by USB) during the demo.
+- Camera coordinates are **assigned** because the phones are physically close; the report states this clearly (assumption A2).
+- Timestamps come from the laptop clock when frames are received (assumption A3).
+- If only one phone can stream at a time, a second location is represented by re-registering the phone or by recorded video (assumption A5).
+- Free-tier services only (PostgreSQL, SMTP, map tiles).
+- All external dependencies (models, libraries, database) are installed and tested **before** Phase 2 to avoid late environment issues.
 
 ## 9. Acceptance Scenarios
 
@@ -342,58 +365,59 @@ Each scenario must be demonstrated and its result recorded in the evaluation rep
 
 | ID | Scenario | Expected result |
 |---|---|---|
-| S01 | Registered vehicle, owner driving | PASS, logged |
-| S02 | Registered vehicle, family member driving, owner taps **Allow** | `AUTHORIZED_DRIVER`, no police alert |
-| S03 | Registered vehicle, stranger driving, owner taps **Complain** | HIGH `UNAUTHORIZED_USE` alert to nearest station |
-| S04 | Plate not in registry | HIGH `UNREGISTERED_VEHICLE` alert |
-| S05 | Plate marked `STOLEN` | HIGH `STOLEN_VEHICLE` alert |
-| S06 | Plate marked `MISSING` | HIGH `MISSING_VEHICLE` alert |
-| S07 | New car on valid temporary registration, owner driving | PASS (no false alert) |
-| S08 | Temporary registration expired | MEDIUM `EXPIRED_REGISTRATION`, flow continues |
-| S09 | Mismatch, driver matches `wanted_list`, operator **Confirms** | HIGH `WANTED_PERSON_MATCH`; owner **not** notified |
-| S10 | Same as S09 but operator **Rejects** | Owner notified; Allow/Complain flow follows |
-| S11 | Mismatch, driver matches `missing_reports` | Review case → on Confirm, `MISSING_PERSON_MATCH` alert |
-| S12 | No plate visible | `NO_PLATE` → operator review, no alert |
-| S13 | Face hidden (mask/tint/low light) | `FACE_UNVERIFIABLE` → operator review |
-| S14 | Owner does not respond within timeout | Moves to operator review |
-| S15 | Same flagged vehicle seen twice within cooldown | Single merged alert |
-| S16 | Network down during alert, restored later | Alert delivered after retry |
-| S17 | Photo of owner's face shown to camera (if liveness implemented) | Rejected |
-| S18 | Cloned plate: valid plate on a different vehicle, different driver | Mismatch path triggered |
+| S01 | Registered vehicle, matches its registry description, seen at one camera | PASS, logged |
+| S02 | Same registered vehicle seen at Camera A and then Camera B with a plausible journey | PASS; no clone alert |
+| S03 | Plate matches a `STOLEN` report | HIGH `STOLEN_VEHICLE` alert; report → `DETECTED` |
+| S04 | Plate matches a `MISSING` report | HIGH `MISSING_VEHICLE` alert; report → `DETECTED` |
+| S05 | Same plate at A and B with an impossible journey, and a different-looking vehicle | HIGH `SUSPECTED_CLONE` with both evidence sets |
+| S06 | Same plate at A and B with an impossible journey, and a similar-looking vehicle | MEDIUM `SUSPECTED_CLONE` |
+| S07 | Plate registered to a white car but seen on a red motorcycle (one camera) | LOW `APPEARANCE_MISMATCH` |
+| S08 | Plate not in the registry, seen once | `UNKNOWN_PLATE` logged; no alert |
+| S09 | No plate visible | `NO_PLATE` logged; no alert |
+| S10 | OCR read is one character away from a stolen plate | `POSSIBLE_MATCH` review item; no alert |
+| S11 | Low light makes colour unreadable | Colour `UNKNOWN`; no appearance alert |
+| S12 | Same flagged vehicle seen twice within the cooldown | Single merged alert |
+| S13 | Network or email down during an alert, restored later | Alert delivered after retry |
+| S14 | Officer moves a stolen report `DETECTED → UNDER_INVESTIGATION → RECOVERED` with notes | Statuses and audit entries recorded |
+| S15 | A camera stream drops and returns | Reconnects within 10 s; other camera unaffected |
+| S16 | A Viewer tries to change a recovery status | Request rejected |
+| S17 | The same plate repeatedly seen at the same camera | One sighting; no clone check against itself |
 
 ## 10. Risk Register
 
 | ID | Risk | Likelihood | Impact | Mitigation | Owner |
 |---|---|---|---|---|---|
 | R1 | OCR accuracy low on Indian plates (fonts, dirt, tilt) | Medium | High | Fine-tune detector; position-aware correction; multi-frame voting; format validation | Dev |
-| R2 | Face match unreliable (angle, glasses, lighting) | High | High | Quality gate; multiple reference images; UNVERIFIABLE state; tune threshold on own data | Dev |
-| R3 | False watchlist match | Medium | High | Strict threshold; mandatory human confirmation | Dev |
-| R4 | TensorFlow/PyTorch dependency conflicts | Medium | Medium | Isolated virtual env; install and test early; fallback to InsightFace/ONNX | Dev |
-| R5 | Phone-to-laptop streaming latency or drops | Medium | Medium | Same LAN or USB tethering; auto-reconnect; recorded-session fallback | Dev |
-| R6 | External service limits (Twilio trial, Gmail SMTP) | High | Low | Simulated mode; Telegram as primary free channel | Dev |
-| R7 | Scope creep | Medium | High | MoSCoW priorities; MVP cut line in [phase_definition.md](phase_definition.md) | Dev |
-| R8 | Privacy or ethics concerns raised by examiners | Medium | Medium | Consent forms, synthetic data, HITL, limitations section | Dev |
-| R9 | Demo-day failure | Medium | High | Recorded replay mode; backup video; pre-demo checklist | Dev |
+| R2 | Colour detection unreliable in changing light | High | Medium | Colour families; majority vote; `UNKNOWN` state; appearance alone is only LOW severity | Dev |
+| R3 | False clone alert from a misread plate | Medium | High | Confidence gate; voting; fuzzy matches go to review only; IJ-only alerts are MEDIUM and need officer verification | Dev |
+| R4 | PaddlePaddle/PyTorch dependency conflicts | Medium | Medium | Isolated virtual environment; install and test early; EasyOCR fallback | Dev |
+| R5 | Phone streaming latency or drops; only one phone can stream | Medium | Medium | USB or Wi-Fi alternatives; auto-reconnect; recorded-session replay | Dev |
+| R6 | Demo cannot show a real long-distance journey | High | Medium | Assigned camera coordinates, scripted recordings, documented clearly | Dev |
+| R7 | External service limits (SMTP) | High | Low | Simulated mode as default | Dev |
+| R8 | Scope creep | Medium | High | MoSCoW priorities; MVP cut line in [phase_definition.md](phase_definition.md) | Dev |
+| R9 | Privacy or ethics concerns raised by examiners | Medium | Medium | Consent forms, dummy data, no face recognition, human in the loop, limitations section | Dev |
+| R10 | Demo-day failure | Medium | High | Recorded replay mode; backup video; pre-demo checklist | Dev |
+| R11 | Learning load of a new stack (PaddleOCR, PostgreSQL, React) | Medium | Medium | Early spikes in Phase 0; EasyOCR fallback; keep the UI small first | Dev |
 
 ## 11. Out of Scope / Future Work
 
-- Multi-camera fusion and tracking of a flagged vehicle across junctions
-- Night-vision / IR support
 - Integration with real databases (Vahan, CCTNS) under official authorisation
-- Mobile app for owners and citizens (Telegram is used in the prototype)
+- Live CCTV and traffic-camera networks
+- Make and model recognition; learned visual re-identification of vehicles
+- Tracking a flagged vehicle's route across junctions
+- Night-vision / IR support
+- Mobile app for officers
 - Blockchain-based tamper-proof logging (hash-chained audit log is the prototype step)
 - Edge AI deployment
-- Insurance / PUC / pending-challan checks
-- Vehicle make/model/colour clone detection (data fields reserved, FR-REG-06)
+- Face recognition (deliberately excluded)
 
 ## 12. Open Decisions
 
 | ID | Question | Current default | Needs decision from |
 |---|---|---|---|
-| D-01 | What happens when the owner does not respond in time? | Move to operator review (no automatic police alert) | Project owner / guide |
-| D-02 | Should watchlist screening run on **every** driver face or only on mismatches? | Mismatch only (matches stated workflow). Recommended to consider `all_faces`, because a wanted person may be driving their own vehicle | Project owner |
-| D-03 | Should a "stolen/missing" plate alert wait for operator confirmation? | No — automatic when OCR confidence is above the gate | Project owner / guide |
-| D-04 | Does `missing_reports` mean missing **persons** (assumed) or missing **vehicles**? | Persons | Project owner |
+| D-01 | Should plates not found in the registry raise an alert? | No: log only. The dummy registry is small, and a real registry is out of scope. Switch `FLAG_UNREGISTERED` available | Project owner / guide |
+| D-02 | What is the maximum plausible speed for the impossible-journey rule? | 120 km/h | Project owner / guide |
+| D-03 | Should an impossible journey with similar-looking vehicles (IJ only) be MEDIUM or HIGH? | MEDIUM, because a misread plate can cause it | Project owner / guide |
 
 ## 13. Traceability
 
@@ -403,4 +427,5 @@ Requirement groups map to modules in [architecture.md](architecture.md) and to d
 
 | Version | Date | Change |
 |---|---|---|
-| 1.0 | 04 Oct 2026 | First complete draft derived from the VehiLence project report and agreed workflow changes (owner Allow/Complain, watchlist screening with human confirmation) |
+| 1.0 | 04 Oct 2026 | First draft for the earlier VehiLence idea (plate detection with face verification) |
+| 2.0 | 09 Nov 2026 | Project changed to VehiGuard: stolen and cloned vehicle detection network. Face verification, watchlists and owner confirmation removed. Added sightings, cross-camera clone detection, appearance comparison, evidence collection and recovery tracking. Stack changed to PaddleOCR, PostgreSQL and React. Own dummy database and phone cameras retained |

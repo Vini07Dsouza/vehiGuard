@@ -1,10 +1,10 @@
-# System Architecture — VehiLence
+# System Architecture — VehiGuard
 
 | Field | Value |
 |---|---|
 | Document | `architecture.md` |
-| Version | 1.0 (Draft for review) |
-| Date | 04 Oct 2026 |
+| Version | 2.0 (Draft for review) |
+| Date | 09 Nov 2026 |
 | Author | [Vinisha Marina Dsouza] |
 | Related documents | [problem_statement.md](problem_statement.md) · [prd.md](prd.md) · [tech_stack.md](tech_stack.md) · [phase_definition.md](phase_definition.md) |
 
@@ -15,12 +15,12 @@
 ## 1. Architectural Overview
 
 ### 1.1 Style
-VehiLence is a **modular monolith** with a separate dashboard:
+VehiGuard is a **modular monolith** with a separate React dashboard:
 
-- One **Python backend** (FastAPI) that hosts the capture worker, vision pipeline, decision engine, case manager, notification service and REST API as clearly separated modules.
-- One **Streamlit dashboard** that talks to the backend only through the REST API.
-- One **SQLite database** and a local **evidence store**.
-- External services: **phone camera stream**, **Telegram**, **SMTP/Twilio**.
+- One **Python backend** (FastAPI) that hosts the camera workers, vision pipeline, decision engine, clone analyser, case manager, notification service and REST API as clearly separated modules.
+- One **React dashboard** that talks to the backend only through the REST API.
+- One **PostgreSQL database** and a local **evidence store**.
+- External inputs and services: **phone camera streams** and **SMTP**.
 
 A microservice split would add deployment complexity with no benefit for a single-laptop prototype. Module boundaries are kept strict so any module can later be extracted.
 
@@ -28,40 +28,47 @@ A microservice split would add deployment complexity with no benefit for a singl
 
 | Principle | Meaning in this system |
 |---|---|
-| **Safety first** | `UNVERIFIABLE`, `NO_PLATE`, timeouts → review, never pass, never auto-alert |
-| **Human in the loop** | No watchlist-based police dispatch without a recorded human decision |
+| **Safety first** | `NO_PLATE`, `LOW_CONFIDENCE`, `UNKNOWN` appearance and fuzzy plate matches never create an automatic HIGH alert and never feed clone analysis |
+| **Leads, not verdicts** | Alerts say "suspected"; a police officer verifies and decides |
 | **Deterministic decisions** | The decision engine is a pure function of inputs + config; easy to test and audit |
-| **Explainability** | Every outcome stores reason codes, scores and thresholds |
+| **Explainability** | Every outcome stores reason codes and the values behind them (distance, time gap, required speed, colours) |
 | **Fail-soft integrations** | External service failure never blocks detection (outbox + retry) |
-| **Config over code** | Thresholds, timeouts, scope and patterns live in configuration |
-| **Replaceable parts** | Interfaces for face model, OCR, storage and notifiers |
+| **Config over code** | Thresholds, timeouts and patterns live in configuration |
+| **Replaceable parts** | Interfaces for OCR, storage, distance calculation and notifiers |
+| **Privacy by design** | No face recognition; evidence retention limits; role-based access |
 
 ## 2. System Context
 
 ```mermaid
 flowchart LR
-  subgraph Field["Checkpoint (field)"]
-    PH["Android phone camera<br/>(IP Webcam / DroidCam)"]
+  subgraph Field["Camera locations (field)"]
+    CA["Phone camera A"]
+    CB["Phone camera B"]
+    CC["Phone camera C or replay video"]
   end
 
-  subgraph Core["VehiLence core (laptop / server)"]
-    CAP["Capture service"]
-    VIS["Vision pipeline<br/>plate + face"]
+  subgraph Core["VehiGuard core (laptop / server)"]
+    CAP["Camera workers"]
+    VIS["Vision pipeline<br/>plate + appearance"]
     ENG["Decision engine"]
+    CLN["Clone analyser"]
     CASE["Case manager"]
     NOT["Notification service<br/>+ outbox"]
     API["FastAPI REST API"]
-    DB[("SQLite database")]
+    DB[("PostgreSQL")]
     FS[("Evidence store")]
   end
 
-  DASH["Streamlit dashboard<br/>(police operator / admin)"]
-  OWN["Vehicle owner<br/>(Telegram)"]
-  POL["Police station<br/>(email / SMS / dashboard)"]
+  DASH["React dashboard<br/>(police officer / admin)"]
+  POL["Police station<br/>(email / dashboard)"]
 
-  PH -->|"MJPEG / RTSP stream"| CAP
+  CA --> CAP
+  CB --> CAP
+  CC --> CAP
   CAP --> VIS
   VIS --> ENG
+  ENG --> CLN
+  CLN --> DB
   ENG --> CASE
   CASE --> NOT
   CASE --> DB
@@ -69,8 +76,6 @@ flowchart LR
   API --- CASE
   API --- DB
   DASH -->|"REST + JWT"| API
-  NOT -->|"Allow / Complain buttons"| OWN
-  OWN -->|"button callback"| NOT
   NOT -->|"alerts"| POL
 ```
 
@@ -79,50 +84,51 @@ flowchart LR
 ```mermaid
 flowchart TB
   subgraph Presentation
-    ST["Streamlit dashboard"]
-    TG["Telegram bot interface"]
+    RD["React dashboard"]
   end
 
   subgraph Application["Application layer (FastAPI)"]
-    R["Routers<br/>auth, sessions, alerts, reviews,<br/>records, analytics, health"]
-    SV["Services<br/>SessionService, CaseService,<br/>AlertService, OwnerConfirmService"]
+    R["Routers<br/>auth, cameras, sightings, alerts,<br/>reports, vehicles, analytics, health"]
+    SV["Services<br/>SightingService, AlertService,<br/>CaseService"]
   end
 
   subgraph Domain["Domain layer"]
-    DE["Decision engine<br/>(pure rules + state machine)"]
-    GEO["Geo router<br/>(Haversine nearest station)"]
+    DE["Decision engine<br/>(pure rules)"]
+    CL["Clone analyser<br/>(journey + appearance signals)"]
+    GEO["Geo module<br/>(Haversine, nearest station)"]
   end
 
   subgraph Vision["Vision layer"]
-    CAPW["Frame grabber<br/>(thread + queue + reconnect)"]
-    VD["VehicleDetector<br/>YOLOv8"]
-    PD["PlateDetector<br/>YOLOv8 fine-tuned"]
+    CAPW["Frame grabber per camera<br/>(thread + queue + reconnect)"]
+    VD["VehicleDetector<br/>YOLO"]
+    PD["PlateDetector<br/>YOLO fine-tuned"]
     PP["Preprocessor<br/>OpenCV"]
-    OCR["PlateOCR<br/>EasyOCR / Tesseract"]
+    OCR["PlateOCR<br/>PaddleOCR / EasyOCR"]
     PV["PlateValidator + Voter"]
-    FD["FaceService<br/>detect, quality, embed, compare"]
+    AP["AppearanceExtractor<br/>type + colour family"]
   end
 
   subgraph Infra["Infrastructure layer"]
     REPO["Repositories<br/>SQLAlchemy"]
     EV["Evidence store"]
     OB["Outbox + scheduler<br/>(APScheduler)"]
-    NT["Notifiers<br/>Telegram, SMTP, Twilio, Simulated"]
+    NT["Notifiers<br/>SMTP, Simulated"]
     CFG["Config + logging"]
   end
 
-  ST --> R
-  TG --> SV
+  RD --> R
   R --> SV
   SV --> DE
+  SV --> CL
+  CL --> GEO
   SV --> GEO
   SV --> REPO
   SV --> OB
   CAPW --> VD --> PD --> PP --> OCR --> PV --> SV
-  CAPW --> FD --> SV
+  VD --> AP --> SV
   OB --> NT
-  FD --> EV
   PD --> EV
+  AP --> EV
   REPO --- CFG
 ```
 
@@ -130,21 +136,23 @@ flowchart TB
 
 | Module | Responsibility | Key PRD refs |
 |---|---|---|
-| **Frame grabber** | Reads the phone stream in its own thread, keeps the latest frames in a bounded queue, reconnects on failure | FR-CAP-01, 02, 06 |
-| **VehicleDetector** | Detects vehicle boxes (COCO classes) | FR-PLT-01 |
+| **Frame grabber** | Reads one camera's stream in its own thread, keeps the latest frames in a bounded queue, timestamps frames with the server clock, reconnects on failure | FR-CAP-01…07 |
+| **VehicleDetector** | Detects vehicle boxes and classes (COCO classes) | FR-PLT-01 |
 | **PlateDetector** | Localises and crops the plate | FR-PLT-02 |
 | **Preprocessor** | Grayscale, denoise, CLAHE, deskew | FR-PLT-03 |
-| **PlateOCR** | EasyOCR primary, Tesseract fallback; returns text + confidence | FR-PLT-04 |
-| **PlateValidator + Voter** | Normalise, position-aware correction, regex validation, majority vote over N frames | FR-PLT-05, 06, 08 |
-| **FaceService** | Face detection, quality gate, embedding, 1:1 and 1:N comparison | FR-FACE-*, FR-WL-* |
-| **Decision engine** | Applies the PRD §5 matrix; emits outcome + reason codes + required actions | FR-REG, FR-WL, FR-OWN |
-| **Case manager** | Owns session, review-case and owner-confirmation state; enforces state transitions | FR-HC-*, FR-OWN-* |
-| **Geo router** | Maps checkpoint → nearest police station | FR-GEO-* |
-| **Alert service** | Builds alert payloads, de-duplicates, writes to the outbox | FR-ALR-* |
-| **Notification service** | Delivers via Telegram, SMTP, Twilio or simulated inbox; retries | FR-ALR-03, 04, 06 |
-| **Scheduler** | Owner timeouts, outbox retry, retention purge, review SLA flags | FR-OWN-05, FR-ALR-04, FR-ADM-04 |
-| **REST API** | Auth, CRUD, queues, analytics, health | FR-DSH, FR-ADM, FR-AUTH |
-| **Dashboard** | Operator and admin UI | FR-DSH-* |
+| **PlateOCR** | PaddleOCR primary, EasyOCR fallback; returns text + confidence | FR-PLT-04 |
+| **PlateValidator + Voter** | Normalise, position-aware correction, regex validation, majority vote over N frames, `NO_PLATE` timeout | FR-PLT-05…07 |
+| **AppearanceExtractor** | Vehicle type from the detector class; dominant colour family; majority over frames; `UNKNOWN` handling | FR-APP-01, 02, 05 |
+| **SightingService** | Creates and de-duplicates sightings, saves evidence references | FR-SIG-*, FR-EVD-* |
+| **Decision engine** | Applies the PRD §5 matrix; emits outcome, alert types, severities and reason codes | FR-REG-*, FR-CLN-04 |
+| **Clone analyser** | Finds earlier sightings at other cameras, evaluates the impossible-journey rule and the appearance signals (IJ, AM, RM) | FR-CLN-01…03, 07; FR-APP-03, 04 |
+| **Geo module** | Haversine distance; nearest station for a camera | FR-GEO-01, 02 |
+| **Case manager** | Alert status workflow and recovery status transitions; status history | FR-ALR-07, FR-CASE-* |
+| **Alert service** | Builds alert payloads, de-duplicates, writes to the outbox | FR-ALR-01, 02, 05 |
+| **Notification service** | Delivers via SMTP or the simulated inbox; retries | FR-ALR-03, 04, 06 |
+| **Scheduler** | Outbox retry, evidence retention purge, camera health | FR-ALR-04, FR-EVD-03, FR-CAP-07 |
+| **REST API** | Auth, CRUD, queues, analytics, health, live events | FR-DSH, FR-ADM, FR-AUTH |
+| **Dashboard** | Officer and admin UI | FR-DSH-* |
 
 ## 4. Core Decision Flow
 
@@ -152,33 +160,32 @@ This is the authoritative flow; it implements the matrix in [prd.md §5](prd.md)
 
 ```mermaid
 flowchart TD
-  A["Start session"] --> B["Capture frames and read plate"]
+  A["Frames from a camera"] --> B["Detect vehicle and plate, read plate,<br/>extract type and colour"]
   B --> C{"Valid plate accepted<br/>with enough confidence?"}
-  C -- "No" --> R1["Operator review queue<br/>(NO_PLATE / LOW_CONFIDENCE)"]
-  C -- "Yes" --> D{"Registry lookup"}
+  C -- "No" --> L1["Log NO_PLATE / LOW_CONFIDENCE<br/>save evidence, no alert"]
+  C -- "Yes" --> S["Create or update sighting<br/>(dedupe per camera)"]
+  S --> D{"Registry lookup<br/>and stolen / missing reports"}
 
-  D -- "Unregistered" --> P1["HIGH police alert<br/>UNREGISTERED_VEHICLE"]
-  D -- "Stolen / Missing / Blacklisted" --> P2["HIGH police alert<br/>flag-specific type"]
-  D -- "Temporary expired" --> M1["MEDIUM dashboard alert<br/>EXPIRED_REGISTRATION"]
-  D -- "Registered or valid temporary" --> F["Capture driver face"]
-  M1 --> F
+  D -- "Active STOLEN report" --> P1["HIGH alert STOLEN_VEHICLE<br/>report becomes DETECTED"]
+  D -- "Active MISSING report" --> P2["HIGH alert MISSING_VEHICLE<br/>report becomes DETECTED"]
+  D -- "Otherwise" --> K["Clone analysis<br/>earlier sightings at other cameras"]
+  P1 --> K
+  P2 --> K
 
-  F --> G{"Face quality OK<br/>within retries?"}
-  G -- "No" --> R2["Operator review queue<br/>(FACE_UNVERIFIABLE)"]
-  G -- "Yes" --> H{"Matches registered owner?"}
-
-  H -- "Yes" --> OK["PASS - log only"]
-  H -- "No" --> W{"Watchlist candidate?<br/>wanted_list / missing_reports"}
-
-  W -- "Yes" --> HC["Human confirmation queue<br/>(owner NOT notified)"]
-  HC -- "Confirm" --> P3["HIGH police alert<br/>WANTED / MISSING_PERSON match"]
-  HC -- "Reject" --> N
-  W -- "No" --> N["Notify owner<br/>Allow / Complain"]
-
-  N -- "Allow" --> AU["AUTHORIZED_DRIVER - log"]
-  N -- "Complain" --> P4["HIGH police alert<br/>UNAUTHORIZED_USE"]
-  N -- "Timeout" --> R3["Operator review queue<br/>(OWNER_TIMEOUT)"]
+  K --> J{"Impossible journey?<br/>(IJ)"}
+  J -- "Yes" --> J2{"Appearance mismatch with<br/>earlier sighting or registry?<br/>(AM or RM)"}
+  J2 -- "Yes" --> P3["HIGH alert SUSPECTED_CLONE"]
+  J2 -- "No" --> P4["MEDIUM alert SUSPECTED_CLONE"]
+  J -- "No" --> M{"AM or RM?"}
+  M -- "Yes" --> P5["LOW alert APPEARANCE_MISMATCH<br/>(dashboard only)"]
+  M -- "No" --> R{"Any alert already raised<br/>for this sighting?"}
+  R -- "Yes" --> DONE["Done - alerts follow the<br/>status workflow"]
+  R -- "No" --> Q{"Plate in registry?"}
+  Q -- "Yes" --> OK["PASS - log only"]
+  Q -- "No" --> U["UNKNOWN_PLATE - log only<br/>(alert only if FLAG_UNREGISTERED)"]
 ```
+
+Alerts are delivered to the nearest station and then followed through the status workflow in §6.
 
 ## 5. Runtime Sequence
 
@@ -186,88 +193,89 @@ flowchart TD
 sequenceDiagram
   autonumber
   participant PH as Phone camera
-  participant CAP as Capture service
+  participant CAP as Camera worker
   participant VIS as Vision pipeline
   participant ENG as Decision engine
-  participant DB as Database
+  participant CLN as Clone analyser
+  participant DB as PostgreSQL
   participant NOT as Notification service
-  participant OWN as Owner (Telegram)
-  participant OPR as Police operator
+  participant OFF as Police officer
   participant POL as Police station
 
   PH->>CAP: video stream
-  CAP->>VIS: frames (plate stage)
-  VIS->>ENG: voted plate text + confidence
-  ENG->>DB: registry lookup
-  DB-->>ENG: vehicle record + owner embeddings
+  CAP->>VIS: frames with server timestamps
+  VIS->>ENG: voted plate, confidence, type, colour, evidence
+  ENG->>DB: save sighting
+  ENG->>DB: registry and stolen/missing lookup
+  DB-->>ENG: vehicle record and active reports
 
-  alt plate unregistered or flagged
-    ENG->>NOT: create police alert (HIGH)
-    NOT->>POL: email / SMS / dashboard
-  else plate valid
-    CAP->>VIS: frames (face stage)
-    VIS->>ENG: driver embedding + quality
-    ENG->>ENG: compare with owner embedding
-    alt face matches owner
-      ENG->>DB: log PASS
-    else face mismatch
-      ENG->>DB: screen wanted_list and missing_reports
-      opt watchlist candidate found
-        ENG->>OPR: review case (images + score)
-        OPR-->>ENG: Confirm or Reject
-        opt confirmed
-          ENG->>NOT: police alert (HIGH)
-          NOT->>POL: deliver alert
-        end
-      end
-      opt no candidate, or operator rejected
-        ENG->>NOT: notify owner
-        NOT->>OWN: snapshot + Allow / Complain
-        alt Allow
-          OWN-->>ENG: Allow
-          ENG->>DB: log AUTHORIZED_DRIVER
-        else Complain
-          OWN-->>ENG: Complain
-          ENG->>NOT: police alert (HIGH)
-          NOT->>POL: deliver alert
-        else Timeout
-          ENG->>OPR: move to review queue
-        end
-      end
-    end
+  opt stolen or missing match
+    ENG->>NOT: HIGH alert
+    NOT->>POL: email / dashboard
   end
+
+  ENG->>CLN: analyse new sighting
+  CLN->>DB: earlier sightings of this plate at other cameras
+  DB-->>CLN: sightings with camera coordinates
+  CLN->>CLN: distance, time gap, required speed, appearance
+  CLN-->>ENG: IJ, AM, RM signals
+
+  alt suspected clone or appearance mismatch
+    ENG->>NOT: alert (HIGH / MEDIUM / LOW)
+    NOT->>POL: deliver (LOW stays on dashboard)
+  else no signals
+    ENG->>DB: log PASS or UNKNOWN_PLATE
+  end
+
+  OFF->>DB: acknowledge, investigate, close or update recovery status
 ```
 
 ## 6. State Machines
 
-### 6.1 Session lifecycle
+### 6.1 Sighting lifecycle
 
 ```mermaid
 stateDiagram-v2
   [*] --> PlateCapture
-  PlateCapture --> RegistryCheck: plate accepted
-  PlateCapture --> OperatorReview: no plate or low confidence
-  RegistryCheck --> PoliceAlert: unregistered or flagged
-  RegistryCheck --> FaceCapture: valid or temp valid
-  RegistryCheck --> FaceCapture: temp expired, medium alert raised
-  FaceCapture --> OperatorReview: unverifiable
-  FaceCapture --> Passed: owner match
-  FaceCapture --> WatchlistScreen: mismatch
-  WatchlistScreen --> HumanConfirm: candidate found
-  WatchlistScreen --> OwnerNotify: no candidate
-  HumanConfirm --> PoliceAlert: confirmed
-  HumanConfirm --> OwnerNotify: rejected
-  OwnerNotify --> Authorized: allow
-  OwnerNotify --> PoliceAlert: complain
-  OwnerNotify --> OperatorReview: timeout
-  OperatorReview --> Closed: operator resolves
-  PoliceAlert --> Closed
-  Passed --> Closed
-  Authorized --> Closed
-  Closed --> [*]
+  PlateCapture --> Logged: no plate or low confidence
+  PlateCapture --> SightingCreated: plate accepted
+  SightingCreated --> Analysed: registry and clone analysis done
+  Analysed --> Passed: no alert
+  Analysed --> AlertRaised: alert created
+  Passed --> [*]
+  Logged --> [*]
+  AlertRaised --> [*]
 ```
 
-### 6.2 Alert delivery lifecycle
+### 6.2 Alert lifecycle (status workflow)
+
+```mermaid
+stateDiagram-v2
+  [*] --> New
+  New --> Acknowledged: officer acknowledges
+  Acknowledged --> UnderInvestigation: officer starts work
+  New --> UnderInvestigation: officer starts work
+  UnderInvestigation --> ClosedConfirmed: officer confirms
+  UnderInvestigation --> ClosedFalseAlarm: officer dismisses
+  Acknowledged --> ClosedFalseAlarm: officer dismisses
+  New --> ClosedFalseAlarm: officer dismisses
+  ClosedConfirmed --> [*]
+  ClosedFalseAlarm --> [*]
+```
+
+### 6.3 Recovery status of a stolen / missing report
+
+| State | Meaning | Allowed next states |
+|---|---|---|
+| `REPORTED` | Report created; the vehicle has not been seen | `DETECTED`, `CLOSED` |
+| `DETECTED` | The vehicle was detected by a camera (set automatically when an alert is created, FR-CASE-02) | `UNDER_INVESTIGATION`, `REPORTED` (false alarm), `RECOVERED`, `CLOSED` |
+| `UNDER_INVESTIGATION` | Officers are acting on the detection | `RECOVERED`, `DETECTED`, `REPORTED`, `CLOSED` |
+| `RECOVERED` | The vehicle has been recovered | `CLOSED` |
+| `CLOSED` | Case ended (recovered and closed, withdrawn or duplicate) | terminal |
+
+Reports in `REPORTED`, `DETECTED` or `UNDER_INVESTIGATION` are **active** and are matched against sightings. Reports in `RECOVERED` or `CLOSED` are not. Every transition stores the user, time, optional location and a note.
+
+### 6.4 Alert delivery lifecycle
 
 ```mermaid
 stateDiagram-v2
@@ -277,22 +285,9 @@ stateDiagram-v2
   Sending --> Retrying: failure
   Retrying --> Sending: back-off elapsed
   Retrying --> Failed: max attempts reached
-  Delivered --> Acknowledged: station acknowledges
-  Acknowledged --> Resolved
+  Delivered --> [*]
   Failed --> [*]
-  Resolved --> [*]
 ```
-
-### 6.3 Review case lifecycle
-
-| State | Meaning | Allowed next states |
-|---|---|---|
-| `PENDING` | Waiting for a human decision | `CONFIRMED`, `REJECTED`, `ESCALATED` |
-| `CONFIRMED` | Operator confirms the match / issue | terminal (alert dispatched) |
-| `REJECTED` | Operator rejects the match | terminal (flow continues to owner notification where applicable) |
-| `ESCALATED` | Needs senior review | `CONFIRMED`, `REJECTED` |
-
-There is **no transition from `PENDING` to dispatch without a human action**.
 
 ## 7. Data Architecture
 
@@ -300,61 +295,22 @@ There is **no transition from `PENDING` to dispatch without a human action**.
 
 ```mermaid
 erDiagram
-  OWNERS ||--o{ OWNER_FACES : has
-  OWNERS ||--o{ VEHICLES : owns
-  POLICE_STATIONS ||--o{ CHECKPOINTS : covers
+  POLICE_STATIONS ||--o{ CAMERAS : covers
   POLICE_STATIONS ||--o{ ALERTS : receives
-  CHECKPOINTS ||--o{ SESSIONS : hosts
-  VEHICLES ||--o{ SESSIONS : "seen in"
-  SESSIONS ||--o{ EVIDENCE : has
-  SESSIONS ||--o{ REVIEW_CASES : raises
-  SESSIONS ||--o{ OWNER_CONFIRMATIONS : requests
-  SESSIONS ||--o{ ALERTS : triggers
-  OWNERS ||--o{ OWNER_CONFIRMATIONS : answers
+  CAMERAS ||--o{ SIGHTINGS : captures
+  VEHICLES ||--o{ VEHICLE_REPORTS : "reported in"
+  SIGHTINGS ||--o{ EVIDENCE : has
+  SIGHTINGS ||--o{ ALERTS : triggers
+  VEHICLE_REPORTS ||--o{ ALERTS : "matched by"
   ALERTS ||--o{ OUTBOX : "delivered by"
+  USERS ||--o{ STATUS_HISTORY : changes
   USERS ||--o{ AUDIT_LOG : acts
 
-  OWNERS {
-    string owner_id PK
-    string full_name
-    string phone
-    string email
-    string telegram_chat_id
-    string consent_ref
-  }
-  OWNER_FACES {
-    string face_id PK
-    string owner_id FK
-    blob embedding
-    string image_path
-    datetime created_at
-  }
-  VEHICLES {
-    string plate_no PK
-    string owner_id FK
-    string registration_type
-    date valid_until
-    string status
-    string make
-    string model
-    string colour
-  }
-  WANTED_LIST {
-    string wanted_id PK
-    string full_name
-    string case_ref
-    string severity
-    blob embedding
-    string image_path
-    string status
-  }
-  MISSING_REPORTS {
-    string report_id PK
-    string full_name
-    string report_ref
-    blob embedding
-    string image_path
-    string status
+  USERS {
+    string user_id PK
+    string username
+    string password_hash
+    string role
   }
   POLICE_STATIONS {
     string station_id PK
@@ -362,67 +318,79 @@ erDiagram
     float lat
     float lon
     string email
-    string phone
   }
-  CHECKPOINTS {
-    string checkpoint_id PK
+  CAMERAS {
+    string camera_id PK
     string station_id FK
     string name
     float lat
     float lon
+    string source_type
+    string status
+    datetime last_frame_at
   }
-  SESSIONS {
-    string session_id PK
-    string checkpoint_id FK
+  VEHICLES {
+    string plate_no PK
+    string vehicle_type
+    string make
+    string model
+    string colour_family
+    string owner_name
+  }
+  VEHICLE_REPORTS {
+    string report_id PK
+    string plate_no FK
+    string report_type
+    string fir_ref
+    datetime reported_at
+    string reported_place
+    string recovery_status
+    datetime updated_at
+  }
+  SIGHTINGS {
+    string sighting_id PK
+    string camera_id FK
     string plate_no
     float plate_conf
-    string registry_status
-    string face_result
-    float face_score
+    string vehicle_type
+    string colour_family
+    datetime observed_at
     string outcome
     string reason_codes
-    datetime started_at
-    datetime ended_at
+    float total_ms
   }
   EVIDENCE {
     string evidence_id PK
-    string session_id FK
+    string sighting_id FK
     string kind
     string path
+    string sha256
     datetime purge_after
-  }
-  REVIEW_CASES {
-    string case_id PK
-    string session_id FK
-    string reason
-    string candidate_type
-    string candidate_id
-    float score
-    string status
-    string decided_by
-    datetime decided_at
-    string note
-  }
-  OWNER_CONFIRMATIONS {
-    string conf_id PK
-    string session_id FK
-    string owner_id FK
-    string token_hash
-    datetime sent_at
-    datetime expires_at
-    string response
-    datetime responded_at
   }
   ALERTS {
     string alert_id PK
-    string session_id FK
-    string station_id FK
-    string type
+    string alert_type
     string severity
-    string payload_json
+    string plate_no
+    string sighting_id FK
+    string related_sighting_id
+    string report_id FK
+    string station_id FK
     string status
+    string reason_codes
+    string journey_json
     int merged_count
     datetime created_at
+  }
+  STATUS_HISTORY {
+    string history_id PK
+    string entity_type
+    string entity_id
+    string from_status
+    string to_status
+    string user_id FK
+    string note
+    datetime ts
   }
   OUTBOX {
     string outbox_id PK
@@ -432,12 +400,6 @@ erDiagram
     int attempts
     datetime next_attempt_at
     string status
-  }
-  USERS {
-    string user_id PK
-    string username
-    string password_hash
-    string role
   }
   AUDIT_LOG {
     string log_id PK
@@ -452,18 +414,20 @@ erDiagram
   }
 ```
 
-> `REVIEW_CASES.candidate_type` / `candidate_id` point to either `WANTED_LIST` or `MISSING_REPORTS` (polymorphic reference, intentionally without a database foreign key). `wanted_list` and `missing_reports` are standalone tables searched by embedding.
+> `SIGHTINGS.plate_no` has **no foreign key** to `VEHICLES`, because unknown plates must also be stored and analysed. `ALERTS.related_sighting_id` points to the earlier sighting in a suspected clone (a second reference to `SIGHTINGS`, not drawn). `STATUS_HISTORY.entity_type` is `ALERT` or `REPORT`, and `entity_id` points to the matching table (polymorphic, no foreign key). `journey_json` holds from/to camera, distance, time gap and required speed.
 
 ### 7.2 Data handling rules
 
 | Data | Stored as | Retention | Access |
 |---|---|---|---|
-| Face embeddings | `float32` BLOB (512-d) | Until the record is removed | Backend only |
-| Evidence images (plate crop, vehicle frame, driver snapshot) | Files in the evidence store, path in DB | Default 30 days, then purged | Authenticated API, role-limited |
-| Session logs and scores | Database rows | Kept for evaluation | Operators, admins, viewers |
+| Sightings and decision logs | Database rows | Kept for evaluation | Officers, admins, viewers |
+| Evidence images (vehicle frame, plate crop) | Files in the evidence store; path and SHA-256 in the database | Default 30 days, then purged, except for evidence linked to open alerts | Authenticated API, role-limited |
+| Registry and reports (dummy) | Database rows | Until removed | Officers, admins |
+| Status history | Append-only table | Kept | Officers, admins, viewers |
 | Audit log | Append-only table, optional hash chain (`hash = H(prev_hash + record)`) | Kept | Admin, viewer (read-only) |
-| Owner tokens | Hash only (`token_hash`) | Until expiry | Backend only |
 | Secrets | Environment variables / `.env` | — | Never in the repository |
+
+No face data is detected, stored for matching or identified at any point.
 
 ## 8. Key Algorithms
 
@@ -475,30 +439,45 @@ erDiagram
 4. Apply position-aware correction according to the pattern (digit slots: `O→0`, `I→1`, `B→8`, `S→5`; letter slots: reverse).
 5. Validate against the configured patterns; discard invalid strings.
 6. Vote across the last *N* frames; accept only when a candidate has the majority and mean confidence ≥ `OCR_CONF_GATE`.
-7. If nothing is accepted before `PLATE_TIMEOUT_S` → `NO_PLATE`.
+7. If nothing is accepted before `PLATE_TIMEOUT_S` → `NO_PLATE` (logged, no alert).
 
-### 8.2 Face verification (1:1)
+### 8.2 Appearance extraction and comparison
 
-1. Detect faces; select the driver (largest/most central).
-2. Quality gate (size, sharpness, brightness, pose). Fail → retry up to `FACE_RETRIES`, then `UNVERIFIABLE`.
-3. Compute the embedding.
-4. Compute cosine distance to each stored owner embedding; take the minimum.
-5. `distance ≤ FACE_THRESHOLD_OWNER` → `MATCH`, otherwise `MISMATCH`.
+1. **Type:** the detector class of the vehicle box; majority over the voting frames.
+2. **Colour:** crop the body region of the vehicle (excluding the plate), convert to HSV, find the dominant colour, and map it to a colour family. Majority over the voting frames.
+3. If the crop is too dark, too small or too blurred, the value is `UNKNOWN`.
+4. **Compare** two appearance signatures: if either value is `UNKNOWN`, that attribute is skipped; if both are known and differ, the attribute is a mismatch.
+5. **RM** compares the sighting with the registry record. **AM** compares the sighting with the earlier sighting.
 
-### 8.3 Watchlist screening (1:N)
+### 8.3 Impossible-journey rule (clone analysis)
 
-1. Stack all `wanted_list` and `missing_reports` embeddings into a matrix.
-2. Compute cosine similarity against the driver embedding.
-3. Keep candidates within `FACE_THRESHOLD_WATCHLIST` (stricter than the owner threshold), top-K.
-4. Any candidate → create a `PENDING` review case and **hold** the owner notification.
+For a new sighting *s2* (camera B, time *t2*) of a plate with an earlier sighting *s1* (camera A, time *t1*) at a **different** camera within `CLONE_WINDOW_H`:
+
+```text
+d      = haversine(A.lat, A.lon, B.lat, B.lon)        # km
+dt     = |t2 - t1|                                     # hours (server timestamps)
+limit  = MAX_PLAUSIBLE_SPEED_KMH * (dt + TIME_TOLERANCE_S / 3600)
+IJ     = (d >= MIN_CLONE_DISTANCE_KM) and (d > limit)
+required_speed = d / dt                                # reported when dt > 0
+```
+
+The check uses a multiplication (no division), so a time gap of zero or near zero is handled. The tolerance and the straight-line distance both make the rule **conservative**: a possible journey is never flagged because of road shape or small timing errors.
+
+**Worked example (with assigned coordinates):** Camera A and Camera B are registered 38 km apart. The plate is seen at A at 10:00:00 and at B at 10:06:00 (dt = 0.1 h, plus 5 s tolerance ≈ 0.1014 h). The limit is 120 × 0.1014 ≈ 12.2 km. Since 38 km > 12.2 km, the journey is impossible (required speed ≈ 380 km/h) → IJ is true.
+
+If several earlier sightings exist, every one within the window is evaluated; the most recent one that gives IJ is used on the alert, and the others are listed in `journey_json`.
 
 ### 8.4 Nearest station
 
-Haversine distance from the checkpoint coordinates to each station; choose the minimum. The result is cached per checkpoint.
+Haversine distance from the camera coordinates to each station; choose the minimum. The result is cached per camera.
 
 ### 8.5 Alert de-duplication
 
 Key = `(plate_no, alert_type)`. If an open alert with the same key exists within `ALERT_COOLDOWN_S`, increment `merged_count` and append the new evidence instead of creating a new alert.
+
+### 8.6 Recovery status
+
+Transitions follow the table in §6.3. A stolen/missing alert sets `REPORTED → DETECTED` automatically; any other change requires an authorised user, a note, and creates a `STATUS_HISTORY` row.
 
 ## 9. Configuration
 
@@ -506,150 +485,157 @@ All values live in `config/settings.yaml` (non-secret) and `.env` (secret).
 
 | Key | Default | Purpose |
 |---|---|---|
-| `FRAME_FPS` | 8 | Processing frame rate |
+| `FRAME_FPS` | 5 | Processing frame rate per camera |
 | `PLATE_VOTE_FRAMES` | 10 | Frames in the voting window |
-| `OCR_CONF_GATE` | 0.70 | Minimum mean OCR confidence to auto-accept a plate |
+| `OCR_CONF_GATE` | 0.70 | Minimum mean OCR confidence to accept a plate |
 | `PLATE_TIMEOUT_S` | 10 | Time before `NO_PLATE` |
-| `FACE_RETRIES` | 3 | Recapture attempts |
-| `FACE_THRESHOLD_OWNER` | tuned | Owner-match distance threshold |
-| `FACE_THRESHOLD_WATCHLIST` | stricter than owner | Watchlist threshold |
-| `WATCHLIST_SCOPE` | `mismatch_only` | or `all_faces` (decision D-02) |
-| `WATCHLIST_TOP_K` | 3 | Candidates shown to the operator |
-| `OWNER_TIMEOUT_S` | 600 (demo: 120) | Owner response window |
-| `ALERT_COOLDOWN_S` | 900 | De-duplication window |
+| `FUZZY_MAX_EDIT_DISTANCE` | 1 | Edit distance for `POSSIBLE_MATCH` review items |
+| `SIGHTING_COOLDOWN_S` | 30 | De-duplication window for sightings at one camera |
+| `CLONE_WINDOW_H` | 24 | How far back to look for earlier sightings |
+| `MAX_PLAUSIBLE_SPEED_KMH` | 120 | Impossible-journey speed limit (decision D-02) |
+| `MIN_CLONE_DISTANCE_KM` | 1 | Ignore camera pairs closer than this |
+| `TIME_TOLERANCE_S` | 5 | Added to the time gap to absorb stream delay |
+| `FLAG_UNREGISTERED` | false | Alert on plates not in the registry (decision D-01) |
+| `ALERT_COOLDOWN_S` | 900 | Alert de-duplication window |
 | `OUTBOX_MAX_ATTEMPTS` | 5 | Delivery attempts |
-| `EVIDENCE_RETENTION_DAYS` | 30 | Purge window |
+| `EVIDENCE_RETENTION_DAYS` | 30 | Purge window (open cases excepted) |
 | `ALERT_MODE` | `simulated` | `simulated` or `live` |
 
 ## 10. REST API Overview
 
-Base path `/api/v1`. All endpoints except `/auth/login` and `/health` require a JWT. Full schema is generated automatically at `/docs` (OpenAPI).
+Base path `/api/v1`. All endpoints except `/auth/login` and `/health` require a JWT. The full schema is generated automatically at `/docs` (OpenAPI).
 
 | Method | Path | Purpose | Roles |
 |---|---|---|---|
 | POST | `/auth/login` | Obtain access token | all |
 | GET | `/health` | Component status | public |
-| POST | `/sessions` | Start a capture session | Checkpoint Op, Admin |
-| POST | `/sessions/{id}/face-capture` | Trigger Stage B | Checkpoint Op |
-| POST | `/sessions/{id}/stop` | End session | Checkpoint Op |
-| GET | `/sessions`, `/sessions/{id}` | List / detail with evidence and scores | Operators, Admin, Viewer |
-| GET | `/alerts` | List with filters | Operators, Admin, Viewer |
-| POST | `/alerts/{id}/ack` | Station acknowledgement | Police Op |
-| GET | `/reviews` | Review queue | Police Op, Admin |
-| POST | `/reviews/{id}/decision` | Confirm / Reject with note | Police Op |
-| POST | `/owner-confirmations/{token}/respond` | Signed-link fallback for Allow / Complain | public (token-protected) |
-| GET/POST/PUT/DELETE | `/vehicles`, `/owners`, `/wanted`, `/missing-reports`, `/stations`, `/checkpoints` | Record management (including face enrolment) | Admin |
-| GET | `/analytics/summary` | Charts data | Operators, Admin, Viewer |
+| GET/POST/PUT | `/cameras` | List, register and update cameras | Camera Operator, Admin |
+| POST | `/cameras/{id}/start`, `/cameras/{id}/stop` | Start or stop a camera worker | Camera Operator, Admin |
+| GET | `/sightings`, `/sightings/{id}` | List and detail with evidence and scores | Officer, Camera Operator, Admin, Viewer |
+| GET | `/plates/{plate_no}/timeline` | Sightings of one plate across cameras | Officer, Admin, Viewer |
+| GET | `/alerts`, `/alerts/{id}` | List with filters; detail | Officer, Admin, Viewer |
+| POST | `/alerts/{id}/status` | Change alert status with a note | Officer |
+| GET/POST | `/reports` | List stolen/missing reports; create a report | Officer, Admin (create); Viewer (list) |
+| POST | `/reports/{id}/status` | Change recovery status with a note | Officer |
+| GET/POST/PUT/DELETE | `/vehicles`, `/stations` | Record management | Admin |
+| GET | `/review/possible-matches` | `POSSIBLE_MATCH` items | Officer |
+| GET | `/analytics/summary` | Charts data | Officer, Admin, Viewer |
 | GET | `/audit` | Audit log | Admin, Viewer |
+| GET | `/events` | Server-Sent Events for live updates | all signed-in roles |
 
 ## 11. Security Architecture
 
 | Concern | Control |
 |---|---|
 | Authentication | JWT bearer tokens; bcrypt password hashes; short token lifetime |
-| Authorisation | Role checks in API dependencies (Admin / Police Operator / Checkpoint Operator / Viewer) |
-| Owner response integrity | Telegram callbacks verified against the stored chat ID; fallback links use signed, single-use, expiring tokens (hash stored) |
-| Data at rest | Embeddings and evidence not served publicly; OS-level disk encryption recommended on the demo laptop |
-| Data in transit | HTTPS for anything beyond the local network; Telegram and SMTP use TLS |
+| Authorisation | Role checks in API dependencies (Admin / Police Officer / Camera Operator / Viewer) |
+| Data at rest | Evidence not served publicly; OS-level disk encryption recommended on the demo laptop |
+| Data in transit | HTTPS for anything beyond the local network; SMTP over TLS |
+| Dashboard | CORS restricted to the dashboard origin; tokens never placed in URLs |
 | Secrets | `.env` excluded from Git; rotated before sharing the repository |
-| Input handling | Pydantic validation, file-type and size checks on uploads |
-| Abuse resistance | Rate limiting on public endpoints; single-response idempotency for owner actions |
+| Input handling | Pydantic validation, file-type and size checks |
+| Abuse resistance | Rate limiting on login |
+| Evidence integrity | SHA-256 recorded when evidence is saved |
 | Accountability | Append-only audit log; every human decision records actor, time and note |
-| Supply chain | `pip-audit`; pinned dependency versions |
+| Supply chain | `pip-audit`, `npm audit`; pinned dependency versions |
 
 ## 12. Reliability and Error Handling
 
 | Failure | Behaviour |
 |---|---|
-| Phone stream drops | Frame grabber reconnects; session pauses; warning on the dashboard |
-| OCR gives invalid/low-confidence text | Counts as no acceptance; after timeout → `NO_PLATE` review |
-| Face not usable | Retry up to `FACE_RETRIES`, then `UNVERIFIABLE` review |
-| Telegram / SMTP / Twilio failure | Message stays in the outbox; retried with back-off; `FAILED` is shown prominently after the last attempt |
-| Backend restart mid-session | Open sessions and owner confirmations are reloaded from the database; the timeout scheduler resumes |
-| Duplicate owner response | First response wins; others are logged and ignored |
-| Database write error | Transaction rolled back; session marked `ERROR` with reason code |
+| A camera stream drops | That camera's frame grabber reconnects; its status shows offline; other cameras continue |
+| OCR gives invalid or low-confidence text | Counts as no acceptance; after the timeout → `NO_PLATE` logged, no alert |
+| Colour or type cannot be determined | Value `UNKNOWN`; never a mismatch |
+| SMTP failure | Message stays in the outbox; retried with back-off; `FAILED` shown prominently after the last attempt |
+| Backend restart | Cameras are restarted by the operator; open alerts and outbox entries are reloaded from the database; the scheduler resumes |
+| Duplicate detections | Sighting and alert de-duplication |
+| Database write error | Transaction rolled back; sighting marked `ERROR` with a reason code |
 
 ## 13. Deployment View
 
 ```mermaid
 flowchart LR
-  subgraph Phone["Android phone"]
-    CAM["IP Webcam / DroidCam"]
+  subgraph Phones["Phones"]
+    CAM1["Camera app on phone A"]
+    CAM2["Camera app on phone B"]
   end
   subgraph Laptop["Laptop (Windows / Ubuntu)"]
     subgraph Proc1["Process 1: backend"]
-      API["FastAPI + pipeline + scheduler"]
-      BOT["Telegram bot (long polling)"]
+      API["FastAPI + camera workers + scheduler"]
     end
     subgraph Proc2["Process 2: dashboard"]
-      ST["Streamlit"]
+      RD["React (Vite dev server or built files)"]
     end
-    DBF[("vehilence.db")]
+    PG[("PostgreSQL")]
     EVF[("data/evidence/")]
   end
-  subgraph Cloud["Free external services"]
-    TGAPI["Telegram Bot API"]
+  subgraph Ext["External (free)"]
     SMTP["SMTP server"]
-    TW["Twilio (optional)"]
+    TILES["Map tiles"]
   end
 
-  CAM -->|"Wi-Fi / USB tethering"| API
-  ST -->|"HTTP"| API
-  API --- DBF
+  CAM1 -->|"Wi-Fi / USB"| API
+  CAM2 -->|"Wi-Fi / USB"| API
+  RD -->|"HTTP"| API
+  API --- PG
   API --- EVF
-  BOT <-->|"HTTPS"| TGAPI
   API -->|"TLS"| SMTP
-  API -->|"HTTPS"| TW
+  RD -->|"HTTPS"| TILES
 ```
 
-- **Dev / demo:** both processes run on one laptop; the phone joins the same network.
-- **Optional Docker:** one container for the backend, one for the dashboard, a mounted volume for the database and evidence.
-- **Telegram long polling** removes the need for a public URL or tunnel.
+- **Dev / demo:** both processes and the database run on one laptop; the phones join the same network or connect by USB.
+- **Replay mode:** a recorded video or image folder can replace any camera.
+- **Optional Docker:** containers for the backend, dashboard and PostgreSQL, with mounted volumes for data and evidence.
 
 ## 14. Proposed Repository Structure
 
 ```text
-vehilence/
+vehiguard/
 ├── app/
 │   ├── main.py                    # FastAPI entry point
-│   ├── api/                       # routers: auth, sessions, alerts, reviews, records, analytics
+│   ├── api/                       # routers: auth, cameras, sightings, alerts, reports, vehicles, analytics, events
 │   ├── core/                      # config, security, logging, scheduler
 │   ├── domain/
 │   │   ├── decision_engine.py     # pure rules (PRD §5 matrix)
+│   │   ├── clone_analyser.py      # impossible-journey and appearance signals
 │   │   ├── states.py              # enums: outcomes, statuses, reason codes
-│   │   └── geo.py                 # Haversine nearest-station
+│   │   └── geo.py                 # Haversine, nearest station
 │   ├── pipeline/
-│   │   ├── capture.py             # frame grabber
+│   │   ├── capture.py             # frame grabber per camera
 │   │   ├── vehicle_detector.py
 │   │   ├── plate_detector.py
 │   │   ├── preprocess.py
-│   │   ├── ocr.py
+│   │   ├── ocr.py                 # PaddleOCR with EasyOCR fallback
 │   │   ├── plate_validator.py     # normalise, correct, regex, voting
-│   │   ├── face_service.py        # detect, quality, embed, compare
-│   │   └── run.py                 # pipeline runner
-│   ├── services/                  # session, case, alert, owner-confirm
-│   ├── notifiers/                 # telegram.py, smtp.py, twilio.py, simulated.py
+│   │   ├── appearance.py          # vehicle type and colour family
+│   │   └── run.py                 # pipeline runner (one camera per worker)
+│   ├── services/                  # sighting, alert, case
+│   ├── notifiers/                 # smtp.py, simulated.py
 │   ├── db/                        # models.py, repositories.py, migrations/
 │   └── schemas/                   # Pydantic request/response models
-├── dashboard/
-│   ├── Home.py
-│   └── pages/                     # Live, Alerts, Review, Search, Analytics, Admin, Audit
+├── dashboard/                     # React (Vite) app
+│   ├── src/
+│   │   ├── pages/                 # Live, Alerts, AlertDetail, Plate, Reports, Review, Analytics, Admin, Audit
+│   │   ├── components/            # maps, evidence viewer, badges
+│   │   └── api/                   # API client
+│   └── package.json
 ├── config/
 │   ├── settings.yaml
 │   └── plate_patterns.yaml
 ├── scripts/
-│   ├── seed_data.py               # builds dummy DB reproducibly
+│   ├── seed_data.py               # builds the dummy database reproducibly
 │   ├── train_plate_detector.ipynb
 │   └── evaluate.py                # metrics for the report
 ├── data/
 │   ├── evidence/                  # runtime evidence (git-ignored)
 │   ├── test_plates/               # held-out test images
-│   └── test_sessions/             # recorded sessions for replay
+│   ├── test_vehicles/             # labelled vehicle crops for appearance tests
+│   └── test_sessions/             # recorded sessions for replay (scenarios S01–S17)
 ├── tests/
-│   ├── unit/                      # decision engine, validator, geo, thresholds
-│   ├── integration/               # API + DB + notifier (mocked)
-│   └── scenarios/                 # S01–S18 from the PRD
-├── docs/                          # these documents + datasets.md + consent templates
+│   ├── unit/                      # decision engine, clone analyser, validator, geo, appearance
+│   ├── integration/               # API + database + notifier (mocked)
+│   └── scenarios/                 # S01–S17 from the PRD
+├── docs/                          # these documents + datasets.md + consent form
 ├── .env.example
 ├── requirements.txt
 └── README.md
@@ -657,19 +643,19 @@ vehilence/
 
 ## 15. Concurrency Model
 
-- **Frame grabber thread** → bounded queue (drops old frames to stay real-time).
-- **Pipeline worker** consumes frames, runs detection/OCR/face on the newest frames, and calls the decision engine.
-- **FastAPI event loop** serves REST requests; heavy model inference runs outside the request path.
-- **Scheduler thread** handles timeouts, retries and purges.
-- **Models are loaded once** at start-up and reused (avoids repeated multi-second loads).
-- SQLite runs in WAL mode so the dashboard can read while the pipeline writes.
+- **One frame-grabber thread per camera** → bounded queue (drops old frames to stay real-time).
+- **Pipeline workers** consume frames, run detection, OCR and appearance on the newest frames, and hand accepted sightings to the decision engine.
+- **FastAPI event loop** serves REST requests and live events; heavy model inference runs outside the request path.
+- **Scheduler thread** handles retries, purges and camera health.
+- **Models are loaded once** at start-up and shared (avoids repeated multi-second loads).
+- **PostgreSQL** handles concurrent writes from several camera workers. Sighting and alert writes use transactions, and de-duplication relies on unique keys or locking so two cameras cannot create duplicate alerts.
 
 ## 16. Observability
 
-- Structured logs (JSON or key-value) with `session_id` on every line.
-- Per-stage timings stored on each session: capture, detect, OCR, face, decision, total.
-- Dashboard "System health" panel using `/health` (models loaded, DB reachable, stream alive, notifier status, outbox backlog).
-- Evaluation script reads the sessions table to produce report-ready metrics.
+- Structured logs (JSON or key-value) with `sighting_id` on every line.
+- Per-stage timings stored on each sighting: capture, detect, OCR, appearance, decision, total.
+- Dashboard "System health" panel using `/health` (models loaded, database reachable, cameras online, notifier status, outbox backlog).
+- Evaluation script reads the sightings and alerts tables to produce report-ready metrics.
 
 ## 17. Architecture Decisions (Summary)
 
@@ -677,32 +663,34 @@ vehilence/
 |---|---|---|---|
 | ADR-01 | Modular monolith | Microservices | Single-laptop prototype; simpler to build and demo |
 | ADR-02 | FastAPI | Flask | Typed models, auto docs, auth helpers |
-| ADR-03 | SQLite (WAL) | PostgreSQL | Zero setup; matches the report; swap path documented |
-| ADR-04 | Streamlit dashboard | React / plain HTML | Speed; Python-only |
-| ADR-05 | Telegram for owner actions | SMS / FCM | Free, buttons and photos without an app |
-| ADR-06 | Outbox pattern for alerts | Direct send | No lost alerts; external failures isolated |
-| ADR-07 | Human confirmation for watchlist | Auto-dispatch | Safety, ethics, legal defensibility |
-| ADR-08 | `UNVERIFIABLE` as a distinct state | Treat as mismatch | Prevents false accusations on poor images |
-| ADR-09 | Pure-function decision engine | Logic spread across modules | Testable; auditable; deterministic |
-| ADR-10 | Cosine search with NumPy | FAISS | Watchlist is tiny; FAISS stays as an upgrade |
-| ADR-11 | Embeddings stored, images purged | Keep all images | Data minimisation |
-| ADR-12 | Config-driven thresholds | Hard-coded | Tuning on own data; easy experiments |
+| ADR-03 | PostgreSQL | SQLite | Time-range queries, concurrent camera writers, PostGIS upgrade path |
+| ADR-04 | React dashboard | Streamlit | Project choice; maps and detail pages |
+| ADR-05 | Outbox pattern for alerts | Direct send | No lost alerts; external failures isolated |
+| ADR-06 | Several independent clone signals (IJ, AM, RM) | One signal | No single weak signal triggers a HIGH alert |
+| ADR-07 | Straight-line distance plus tolerance | Road routing | Conservative; no external routing service needed |
+| ADR-08 | Server-clock timestamps | Phone clocks | Phones may be out of sync |
+| ADR-09 | `UNKNOWN` as a distinct appearance state | Treat as mismatch | Prevents false alerts in poor light |
+| ADR-10 | Pure-function decision engine | Logic spread across modules | Testable; auditable; deterministic |
+| ADR-11 | Colour families | Exact colour matching | Lighting changes colour; families reduce false mismatches |
+| ADR-12 | No face recognition | Driver verification | Out of scope; avoids biometric privacy issues |
+| ADR-13 | Config-driven thresholds | Hard-coded | Tuning on own data; easy experiments |
 
 ## 18. Extension Points
 
 | Future need | Where it plugs in |
 |---|---|
 | CCTV / RTSP cameras | Frame grabber input |
-| Multi-camera tracking | New `tracking` module consuming `sessions` |
-| Liveness detection | `FaceService.quality_and_liveness()` |
-| Make / model / colour clone check | New check in the decision engine using `VEHICLES.make/model/colour` |
+| Route tracking across junctions | New module consuming the `sightings` table |
+| Learned vehicle re-identification (embedding similarity) | `AppearanceExtractor` (FR-APP-06) |
+| Make / model recognition | `AppearanceExtractor` and the `VEHICLES` fields |
 | Real registry integration (Vahan / CCTNS) | Repository interface for vehicles, behind authorisation |
-| Mobile app for owners | New notifier + owner API |
-| PostgreSQL + FAISS | Repository layer and `FaceService` index |
-| Edge deployment | Package the pipeline separately from API/dashboard |
+| PostGIS | `geo.py` behind the same function signatures |
+| Mobile app for officers | New notifier and API client |
+| Edge deployment | Package the pipeline separately from the API and dashboard |
 
 ## 19. Revision History
 
 | Version | Date | Change |
 |---|---|---|
-| 1.0 | 04 Oct 2026 | Initial architecture |
+| 1.0 | 04 Oct 2026 | Initial architecture for the earlier VehiLence idea |
+| 2.0 | 09 Nov 2026 | Re-architected for VehiGuard: sightings, clone analyser, appearance extraction, evidence, recovery tracking; PostgreSQL and React; face and owner-notification components removed |
