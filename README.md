@@ -55,6 +55,21 @@ Then set your PostgreSQL password in `DATABASE_URL` in `.env`, and check the con
 python -m scripts.check_db
 ```
 
+Create the tables (run this again after pulling new migrations), then run the tests:
+
+```bat
+alembic upgrade head
+pytest
+```
+
+To rebuild the dummy database (this **empties every table** first), run:
+
+```bat
+python scripts/seed_data.py
+```
+
+It creates 3 police stations, 3 cameras, 25 vehicles, 6 stolen/missing reports and 4 demo users (`admin`, `officer`, `operator`, `viewer`). Their password comes from `SEED_USER_PASSWORD` in `.env`. If that is empty, a random password is printed once.
+
 ## Running the app
 
 Use two terminals, both started in the project folder.

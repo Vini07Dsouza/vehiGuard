@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     smtp_user: str = ""
     smtp_password: str = ""
     smtp_from: str = ""
+    seed_user_password: str = ""  # used by scripts/seed_data.py for demo users
 
 
 @lru_cache
