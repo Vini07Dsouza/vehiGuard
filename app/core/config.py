@@ -6,7 +6,8 @@ from pathlib import Path
 import yaml
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-CONFIG_DIR = Path(__file__).resolve().parents[2] / "config"
+ROOT_DIR = Path(__file__).resolve().parents[2]
+CONFIG_DIR = ROOT_DIR / "config"
 
 
 class Settings(BaseSettings):

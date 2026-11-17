@@ -150,14 +150,27 @@ class PlateVoter:
                     )
                 self._saw_low_confidence = True
 
+        return self.check_timeout(now)
+
+    def check_timeout(self, now: float) -> VoteResult:
+        """WAITING, or NO_PLATE / LOW_CONFIDENCE once the timeout has passed.
+
+        Used on frames where an OCR read is still running (no new reading).
+        """
+        if self._started_at is None:
+            self._started_at = now
         if now - self._started_at >= self.timeout_s:
-            status = (
-                VoteStatus.LOW_CONFIDENCE
-                if self._saw_low_confidence
-                else VoteStatus.NO_PLATE
-            )
-            return self._finish(status)
+            return self.close()
         return VoteResult(VoteStatus.WAITING, frames=self._frames)
+
+    def close(self) -> VoteResult:
+        """The vehicle left before a decision: NO_PLATE or LOW_CONFIDENCE."""
+        status = (
+            VoteStatus.LOW_CONFIDENCE
+            if self._saw_low_confidence
+            else VoteStatus.NO_PLATE
+        )
+        return self._finish(status)
 
     def _finish(self, status, plate=None, confidence=None, votes=0) -> VoteResult:
         result = VoteResult(status, plate, confidence, votes, self._frames)

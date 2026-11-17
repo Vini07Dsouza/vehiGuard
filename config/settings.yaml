@@ -7,6 +7,30 @@ pipeline:
   ocr_conf_gate: 0.70         # minimum mean OCR confidence to accept a plate
   plate_timeout_s: 10         # time before NO_PLATE
 
+performance:
+  # CPU cores for YOLO detection and for PaddleOCR (this laptop has 8).
+  # Keeping them separate stops the two from slowing each other down.
+  detector_threads: 4
+  ocr_threads: 3
+
+detection:
+  vehicle_model: yolov8n.pt     # pre-trained COCO model (car, motorcycle, bus, truck)
+  vehicle_conf: 0.35
+  vehicle_imgsz: 480            # 640 is slightly more accurate but slower on a CPU
+  vehicle_every: 2              # detect vehicles every Nth frame (plates: every frame)
+  # Nepal baseline (D07). After task 2.4, change to: models/plate_detector.pt
+  plate_model: hf://krishnamishra8848/Nepal-Vehicle-License-Plate-Detection/last.pt
+  plate_conf: 0.25
+  plate_imgsz: 640
+
+ocr:
+  # Tried in this order. paddle_rec = fast PaddleOCR recognition only (live
+  # default); paddleocr = full PaddleOCR; easyocr = fallback engine.
+  engines: [paddle_rec, paddleocr, easyocr]
+  variants: [gray, full, binary]  # preprocessed versions of the crop to try
+  # Live pipeline: fast read every time, full fallback every Nth read per vehicle
+  thorough_every: 4
+
 matching:
   fuzzy_max_edit_distance: 1  # edit distance for POSSIBLE_MATCH review items
   flag_unregistered: false    # alert on plates not in the registry (decision D-01)
