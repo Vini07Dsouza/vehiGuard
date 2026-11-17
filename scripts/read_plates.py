@@ -1,34 +1,24 @@
-"""Day 3: read the text on cropped plates with EasyOCR."""
+"""Read the text on cropped plates with EasyOCR and report accuracy.
+
+Plate rules come from config/plate_patterns.yaml via app.pipeline.plate_validator.
+Run from the project folder:  python scripts/read_plates.py
+"""
 
 import re
+import sys
 from pathlib import Path
 
 import cv2
 import easyocr
 
-CROPS = Path("data/plate_crops")
-ALLOWED = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))  # allow "python scripts/read_plates.py"
 
-STANDARD = re.compile(r"^[A-Z]{2}\d{2}[A-Z]{1,3}\d{4}$")
-BH_SERIES = re.compile(r"\d{2}BH\d{4}[A-Z]{1,2}")
-STATE_CODES = {
-    "AN", "AP", "AR", "AS", "BR", "CG", "CH", "DD", "DL", "DN", "GA", "GJ", "HP",
-    "HR", "JH", "JK", "KA", "KL", "LA", "LD", "MH", "ML", "MN", "MP", "MZ", "NL",
-    "OD", "OR", "PB", "PY", "RJ", "SK", "TN", "TR", "TS", "UK", "UP", "WB",
-}  # fmt: skip
-TO_DIGIT = {
-    "O": "0",
-    "Q": "0",
-    "D": "0",
-    "I": "1",
-    "L": "1",
-    "T": "1",
-    "Z": "2",
-    "S": "5",
-    "B": "8",
-    "G": "6",
-}
-TO_LETTER = {"0": "O", "1": "I", "2": "Z", "5": "S", "8": "B", "6": "G"}
+from app.pipeline.plate_validator import PlateValidator
+
+CROPS = ROOT / "data/plate_crops"
+ALLOWED = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+validator = PlateValidator()
 
 
 def preprocess_variants(img):
@@ -66,38 +56,6 @@ def order_segments(results):
     return ordered
 
 
-def fix_window(window):
-    """Letters in the state/series slots, digits in the number slots."""
-    n = len(window)
-    out = []
-    for i, ch in enumerate(window):
-        if i < 2 or 4 <= i < n - 4:
-            out.append(TO_LETTER.get(ch, ch))
-        else:
-            out.append(TO_DIGIT.get(ch, ch))
-    return "".join(out)
-
-
-def extract_plate(text):
-    # Blue "IND" strip on HSRP plates: may be read first or between the two rows
-    text = re.sub(r"^[A-Z0-9]?ND", "", text).replace("IND", "")
-    bh = BH_SERIES.search(text)
-    if bh:
-        return bh.group(0)
-    for n in (10, 9, 11):
-        for start in range(len(text) - n + 1):
-            window = fix_window(text[start : start + n])
-            if STANDARD.match(window) and window[:2] in STATE_CODES:
-                return window
-    return text
-
-
-def is_valid(plate):
-    if BH_SERIES.fullmatch(plate):
-        return True
-    return bool(STANDARD.match(plate)) and plate[:2] in STATE_CODES
-
-
 def read_plate(reader, img):
     best = ("", 0.0, "")  # plate, confidence, raw text
     best_valid = False
@@ -107,8 +65,9 @@ def read_plate(reader, img):
             continue
         raw = re.sub(r"[^A-Z0-9]", "", "".join(r[3] for r in results).upper())
         conf = sum(r[4] for r in results) / len(results)
-        plate = extract_plate(raw)
-        valid = is_valid(plate)
+        checked = validator.validate(raw)
+        valid = checked is not None
+        plate = checked or raw  # show the raw text when it is not a valid plate
         if (valid, conf) > (best_valid, best[1]):
             best, best_valid = (plate, conf, raw), valid
     return best[0], best[1], best[2], best_valid
