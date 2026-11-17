@@ -1,0 +1,21 @@
+# Indian number plate rules used by the plate validator (FR-PLT-05).
+# These match the rules tested in scripts/read_plates.py.
+
+patterns:
+  # KA19AB1234: state (2 letters), RTO (2 digits), series (1-3 letters), number (4 digits)
+  standard: '^[A-Z]{2}\d{2}[A-Z]{1,3}\d{4}$'
+  # 22BH1234AA: year, BH, number, 1-2 letters
+  bh_series: '^\d{2}BH\d{4}[A-Z]{1,2}$'
+
+# Valid state and union territory codes (first two letters of a standard plate)
+state_codes: [
+  AN, AP, AR, AS, BR, CG, CH, DD, DL, DN, GA, GJ, HP, HR, JH, JK, KA, KL, LA,
+  LD, MH, ML, MN, MP, MZ, NL, OD, OR, PB, PY, RJ, SK, TN, TR, TS, UK, UP, WB,
+]
+
+# Common OCR mix-ups, fixed by position (letter slots vs digit slots)
+to_digit: {O: "0", Q: "0", D: "0", I: "1", L: "1", T: "1", Z: "2", S: "5", B: "8", G: "6"}
+to_letter: {"0": O, "1": I, "2": Z, "5": S, "8": B, "6": G}
+
+# Text printed on HSRP plates that is not part of the number
+ignore_text: [IND]

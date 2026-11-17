@@ -12,3 +12,17 @@ data/evidence/*
 data/plate_crops/
 data/plate_results/
 data/test_plates/
+
+# Database backups
+*.dump
+*.sql
+
+# Recorded sessions and vehicle crops (keep the folders only)
+data/test_sessions/*
+!data/test_sessions/.gitkeep
+data/test_vehicles/*
+!data/test_vehicles/.gitkeep
+
+# Output of scripts/test_yolo.py
+/bus.jpg
+/yolo_result.jpg

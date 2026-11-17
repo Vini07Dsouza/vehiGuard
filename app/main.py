@@ -12,7 +12,7 @@ from app.db.session import engine
 app = FastAPI(title="VehiGuard API", version="0.1.0")
 
 
-@app.get("/api/health")
+@app.get("/api/v1/health")
 def health() -> dict:
     """Phase 0 check: the API is up and can reach the database."""
     try:
