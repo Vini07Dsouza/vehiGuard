@@ -55,6 +55,13 @@ Then set your PostgreSQL password in `DATABASE_URL` in `.env`, and check the con
 python -m scripts.check_db
 ```
 
+Create the tables (run this again after pulling new migrations), then run the tests:
+
+```bat
+alembic upgrade head
+pytest
+```
+
 ## Running the app
 
 Use two terminals, both started in the project folder.
