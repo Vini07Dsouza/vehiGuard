@@ -29,7 +29,8 @@ Details and reasons for each choice: [docs/tech_stack.md](docs/tech_stack.md).
 ```
 app/          Backend: domain logic, pipeline, database, notifiers, API
 config/       settings.yaml, plate_patterns.yaml
-dashboard/    React dashboard
+dashboard/    Old Streamlit console (to be replaced)
+dashboard-web/ React dashboard (Vite)
 data/         Local test images, crops and database (not committed)
 docs/         Project documents
 scripts/      Setup, seed and experiment scripts
@@ -47,6 +48,28 @@ pip install -r requirements.txt
 pre-commit install
 copy .env.example .env
 ```
+
+Then set your PostgreSQL password in `DATABASE_URL` in `.env`, and check the connection:
+
+```bat
+python -m scripts.check_db
+```
+
+## Running the app
+
+Use two terminals, both started in the project folder.
+
+```bat
+:: Terminal 1: backend API on http://127.0.0.1:8000
+uvicorn app.main:app --reload
+
+:: Terminal 2: React dashboard on http://localhost:5173
+cd dashboard-web
+npm install
+npm run dev
+```
+
+The dashboard sends `/api` requests to the backend, so open http://localhost:5173. The status page shows **API: OK** and **Database: OK** when both are running.
 
 ## Plate recognition test scripts
 
