@@ -15,7 +15,7 @@ export default function App() {
   const [error, setError] = useState(null)
 
   const load = () =>
-    fetch('/api/health')
+    fetch('/api/v1/health')
       .then((res) => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`)
         return res.json()

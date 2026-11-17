@@ -1,0 +1,28 @@
+# VehiGuard settings (non-secret). Secrets and ALERT_MODE live in .env.
+# Keys and defaults follow docs/architecture.md §9.
+
+pipeline:
+  frame_fps: 5                # processing frame rate per camera
+  plate_vote_frames: 10       # frames in the voting window
+  ocr_conf_gate: 0.70         # minimum mean OCR confidence to accept a plate
+  plate_timeout_s: 10         # time before NO_PLATE
+
+matching:
+  fuzzy_max_edit_distance: 1  # edit distance for POSSIBLE_MATCH review items
+  flag_unregistered: false    # alert on plates not in the registry (decision D-01)
+
+sightings:
+  sighting_cooldown_s: 30     # de-duplication window at one camera
+
+clone_detection:
+  clone_window_h: 24          # how far back to look for earlier sightings
+  max_plausible_speed_kmh: 120  # impossible-journey speed limit (decision D-02)
+  min_clone_distance_km: 1    # ignore camera pairs closer than this
+  time_tolerance_s: 5         # added to the time gap to absorb stream delay
+
+alerts:
+  alert_cooldown_s: 900       # alert de-duplication window
+  outbox_max_attempts: 5      # delivery attempts
+
+evidence:
+  evidence_retention_days: 30 # purge window (open cases excepted)
