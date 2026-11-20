@@ -150,3 +150,13 @@ def test_folder_replay_hands_over_every_frame_in_order(tmp_path):
         scenes.append(frame.scene)
     grabber.stop()
     assert scenes == [1, 1, 1, 2, 2, 2]
+
+
+def test_two_line_plates_use_full_paddleocr_first():
+    from app.pipeline.ocr import PlateReader
+
+    reader = PlateReader(engines=["paddle_rec", "paddleocr", "easyocr"])
+    wide = np.zeros((100, 500, 3), np.uint8)  # one-line plate
+    tall = np.zeros((200, 300, 3), np.uint8)  # two-line plate
+    assert reader.engines_for(wide) == ["paddle_rec", "paddleocr", "easyocr"]
+    assert reader.engines_for(tall) == ["paddleocr", "paddle_rec", "easyocr"]
