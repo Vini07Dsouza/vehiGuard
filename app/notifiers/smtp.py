@@ -33,6 +33,19 @@ def format_email(target: str, payload: dict, sender: str) -> EmailMessage:
         f"Station: {payload['station']['name']}",
         f"Reasons: {', '.join(payload['reason_codes'])}",
     ]
+    if payload.get("journey"):
+        j, earlier = payload["journey"], payload.get("earlier_sighting") or {}
+        speed = j["required_speed_kmh"]
+        lines.append(
+            f"Journey: {j['from_camera']} -> {j['to_camera']}, "
+            f"{j['distance_km']:.1f} km in {j['gap_s'] / 60:.1f} min "
+            f"(needs {f'{speed:.0f} km/h' if speed else 'no time at all'}; "
+            f"a genuine vehicle could cover at most {j['limit_km']:.1f} km)"
+        )
+        if earlier:
+            lines.append(f"Earlier sighting: {earlier['camera']['name']} at "
+                         f"{earlier['observed_at']}")  # fmt: skip
+        lines.append("This is a SUSPECTED clone: verify both vehicles.")
     if payload.get("report"):
         r = payload["report"]
         lines.append(f"Report: {r['type']} {r['fir_ref']} (now {r['status']})")

@@ -122,6 +122,26 @@ With `ALERT_MODE=simulated` (the default in `.env`), emails go to a mock inbox: 
 python -m app.services.outbox
 ```
 
+## Clone detection
+
+A cloned plate is a valid plate that cannot be in two places at once. For every new sighting the system looks at the same plate's earlier sightings at **other** cameras in the last 24 hours ([app/domain/clone_analyser.py](app/domain/clone_analyser.py)):
+
+```
+d     = straight-line distance between the two cameras
+limit = 120 km/h x (time gap + 5 s)
+suspected clone when d >= 1 km and d > limit
+```
+
+The straight-line distance and the 5 s tolerance make the rule conservative: a journey that is possible by road is never flagged. The alert stores the journey (cameras, distance, time gap, needed speed) and links the earlier sighting with its evidence images, so an officer sees both vehicles. An impossible journey alone gives a **MEDIUM** `SUSPECTED_CLONE` alert; the HIGH level needs the appearance signals from Phase 5.
+
+The same plate at the same camera within 30 seconds is one visit (one sighting, best frame kept), and low-confidence reads never take part. To replay two cameras at once:
+
+```bat
+python -m app.pipeline.run --camera CAM-A=data\test_sessions\clone_demo_a --camera CAM-C=data\test_sessions\clone_demo_c --no-preview
+```
+
+CAM-A and CAM-C are seeded about 38 km apart, so the same plate seen at both within minutes raises a suspected-clone alert.
+
 ## Measuring accuracy
 
 Put plate photos in `data/test_plates/`. To score OCR, name each file after its plate number, for example `KA19AB1234.jpg`.

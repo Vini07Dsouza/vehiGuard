@@ -21,7 +21,7 @@ detection:
   # Fine-tuned on Indian plates (task 2.4): plates found 82% -> 87% on test photos.
   # Nepal baseline (D07): hf://krishnamishra8848/Nepal-Vehicle-License-Plate-Detection/last.pt
   plate_model: models/plate_detector.pt
-  plate_conf: 0.25
+  plate_conf: 0.10              # trained model is less confident: 0.10 reads 57% vs 53% at 0.25
   plate_imgsz: 640
 
 ocr:

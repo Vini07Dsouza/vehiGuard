@@ -65,6 +65,12 @@ def main() -> None:
         action="store_true",
         help="also use plates.csv rows not marked checked=yes (preview only)",
     )
+    parser.add_argument("--conf", type=float, help="plate detector confidence cut-off")
+    parser.add_argument(
+        "--fast-ocr",
+        action="store_true",
+        help="live-pipeline OCR (fast path) instead of the thorough one",
+    )
     parser.add_argument(
         "--detection-only", action="store_true", help="skip OCR (fast, about 1 minute)"
     )
@@ -77,7 +83,7 @@ def main() -> None:
         labels = ROOT / labels
     images = sorted(p for p in folder.iterdir() if p.suffix.lower() in IMAGE_TYPES)
     key, unchecked = answer_key(folder, args.include_unchecked)
-    detector = PlateDetector(weights=args.weights)
+    detector = PlateDetector(weights=args.weights, conf=args.conf)
     reader = None if args.detection_only else PlateReader()
 
     gt_total = gt_found = pred_total = pred_correct = 0
@@ -101,7 +107,10 @@ def main() -> None:
             continue
         if expected == "NONE":  # no plate in the photo: any valid read is wrong
             no_plate_images += 1
-            reads = [reader.read(p.box.crop(img)).plate for p in plates]
+            reads = [
+                reader.read(p.box.crop(img), thorough=not args.fast_ocr).plate
+                for p in plates
+            ]
             if any(reads):
                 false_reads += 1
                 wrong.append(
@@ -121,7 +130,10 @@ def main() -> None:
         if expected and reader is not None:
             named += 1
             t = time.perf_counter()
-            reads = [reader.read(p.box.crop(img)).plate for p in plates]
+            reads = [
+                reader.read(p.box.crop(img), thorough=not args.fast_ocr).plate
+                for p in plates
+            ]
             ocr_ms += (time.perf_counter() - t) * 1000
             if expected in reads:
                 exact += 1
