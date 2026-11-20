@@ -68,13 +68,15 @@ def event(status, plate=None, with_images=True):
     ],
 )
 def test_outcomes(session, camera, status, plate, outcome):
-    sighting = record_sighting(session, event(status, plate))
+    sighting = record_sighting(session, event(status, plate)).sighting
     assert sighting.outcome == outcome
     assert sighting.total_ms == 123.4
 
 
 def test_evidence_files_are_saved_with_fingerprint(session, camera, tmp_path):
-    sighting = record_sighting(session, event(VoteStatus.ACCEPTED, "TS09AB0001"))
+    sighting = record_sighting(
+        session, event(VoteStatus.ACCEPTED, "TS09AB0001")
+    ).sighting
     session.flush()
     rows = session.query(Evidence).filter_by(sighting_id=sighting.sighting_id).all()
     assert sorted(r.kind for r in rows) == ["PLATE_CROP", "VEHICLE_FRAME"]
@@ -85,6 +87,8 @@ def test_evidence_files_are_saved_with_fingerprint(session, camera, tmp_path):
 
 
 def test_no_images_means_no_evidence_rows(session, camera):
-    sighting = record_sighting(session, event(VoteStatus.NO_PLATE, with_images=False))
+    sighting = record_sighting(
+        session, event(VoteStatus.NO_PLATE, with_images=False)
+    ).sighting
     session.flush()
     assert not session.query(Evidence).filter_by(sighting_id=sighting.sighting_id).all()

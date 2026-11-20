@@ -45,7 +45,13 @@ def main() -> None:
         expected = m.group(1) if m else None
         images = preprocess.variants(img)
         for engine in reader.engine_names:
-            for variant in reader.variant_names:
+            # The slow fallback engines are compared on the first variant only
+            variants = (
+                reader.variant_names
+                if engine == reader.engine_names[0]
+                else reader.variant_names[:1]
+            )
+            for variant in variants:
                 t0 = time.perf_counter()
                 r = reader.read_with(engine, images[variant], variant)
                 s = stats[(engine, variant)]

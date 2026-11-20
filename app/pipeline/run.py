@@ -338,10 +338,16 @@ def database_recorder():
 
     def record(event: PlateEvent) -> None:
         with lock, SessionLocal() as session:
-            sighting = record_sighting(session, event)
+            result = record_sighting(session, event)
             session.commit()
-            log.info("%s %s %s -> %s", event.camera_id, event.status,
-                     event.plate or "-", sighting.outcome)  # fmt: skip
+            alerts = ", ".join(
+                f"{a.alert_type}/{a.severity}"
+                + (f" (merged x{a.merged_count})" if a.merged_count > 1 else "")
+                for a in result.alerts
+            )
+            log.info("%s %s %s -> %s %s", event.camera_id, event.status,
+                     event.plate or "-", result.sighting.outcome,
+                     f"ALERT {alerts}" if alerts else "")  # fmt: skip
 
     return record
 
@@ -392,6 +398,11 @@ def main(argv=None) -> None:
 
     models = Models.load()
     on_event = print_recorder if args.no_db else database_recorder()
+    outbox = None
+    if not args.no_db:  # deliver alert emails in the background (outbox)
+        from app.services.outbox import start_scheduler
+
+        outbox = start_scheduler()
     workers = []
     for cid, src in sources.items():
         worker = CameraWorker(
@@ -420,6 +431,14 @@ def main(argv=None) -> None:
             for w in workers:
                 w.stop()
             cv2.destroyAllWindows()
+        if outbox:  # one last delivery round for alerts raised at the end
+            from app.db.session import SessionLocal
+            from app.services.outbox import dispatch_due
+
+            outbox.shutdown(wait=False)
+            with SessionLocal() as session:
+                dispatch_due(session)
+                session.commit()
         for w in workers:
             log.info(w.summary())
 
