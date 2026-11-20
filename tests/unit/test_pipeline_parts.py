@@ -160,3 +160,24 @@ def test_two_line_plates_use_full_paddleocr_first():
     tall = np.zeros((200, 300, 3), np.uint8)  # two-line plate
     assert reader.engines_for(wide) == ["paddle_rec", "paddleocr", "easyocr"]
     assert reader.engines_for(tall) == ["paddleocr", "paddle_rec", "easyocr"]
+
+
+def test_vehicle_colour_is_a_majority_of_readable_frames():
+    from app.domain.states import ColourFamily as C
+
+    def track(votes):
+        t = Tracker(make_voter=lambda: PlateVoter(10, 0.7, 10)).update(
+            [Box(0, 0, 10, 10)], now=0.0
+        )[0]
+        t.colour_votes.update(votes)
+        return t
+
+    assert (
+        track({C.RED: 5, C.WHITE_SILVER_GREY: 2, C.UNKNOWN: 1}).colour_family == C.RED
+    )
+    assert track({C.UNKNOWN: 6}).colour_family == C.UNKNOWN
+    assert track({C.RED: 1, C.UNKNOWN: 9}).colour_family == C.UNKNOWN  # one lucky frame
+    assert (
+        track({C.RED: 3, C.UNKNOWN: 7}).colour_family == C.UNKNOWN
+    )  # mostly unreadable
+    assert track({C.RED: 4, C.UNKNOWN: 4}).colour_family == C.RED

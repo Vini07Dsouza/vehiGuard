@@ -24,6 +24,18 @@ detection:
   plate_conf: 0.10              # trained model is less confident: 0.10 reads 57% vs 53% at 0.25
   plate_imgsz: 640
 
+appearance:
+  # Colour family of a vehicle crop (FR-APP-02/05). UNKNOWN never causes a mismatch.
+  min_width_px: 60              # smaller vehicle crops are UNKNOWN
+  min_height_px: 40
+  min_mean_value: 35            # darker than this: too dark to judge (night)
+  max_mean_value: 245           # brighter than this: overexposed
+  min_sharpness: 8.0            # variance of the Laplacian; lower = too blurred
+  min_dominant_share: 0.40      # the winning colour family needs this share
+  low_saturation: 50            # below this a pixel is grey, white or black
+  black_max_value: 80           # grey pixels darker than this count as black
+  body_margin: 0.18             # share of the vehicle box cut from each side
+
 ocr:
   # Tried in this order. paddle_rec = fast PaddleOCR recognition only (live
   # default); paddleocr = full PaddleOCR; easyocr = fallback engine.

@@ -22,6 +22,7 @@ from app.db.models import (
     Outbox,
     PoliceStation,
     Sighting,
+    Vehicle,
     VehicleReport,
 )
 from app.db.repositories import VehicleReportRepository
@@ -219,6 +220,7 @@ def alert_payload(session: Session, alert: Alert) -> dict:
             {"kind": e.kind, "path": e.path, "sha256": e.sha256} for e in evidence
         ],
         "merged_count": alert.merged_count,
+        "registry": _registry_summary(session, alert.plate_no),
         "journey": alert.journey_json,  # suspected clones only
         "earlier_sighting": _sighting_summary(session, alert.related_sighting_id),
     }
@@ -242,3 +244,16 @@ def _sighting_summary(session: Session, sighting_id: str | None) -> dict | None:
         "colour_family": sighting.colour_family,
         "evidence": [{"kind": e.kind, "path": e.path, "sha256": e.sha256} for e in evidence],
     }  # fmt: skip
+
+
+def _registry_summary(session: Session, plate: str) -> dict | None:
+    """What the registry says this vehicle looks like (for the RM comparison)."""
+    vehicle = session.get(Vehicle, plate)
+    if vehicle is None:
+        return None
+    return {
+        "vehicle_type": vehicle.vehicle_type,
+        "colour_family": vehicle.colour_family,
+        "make": vehicle.make,
+        "model": vehicle.model,
+    }

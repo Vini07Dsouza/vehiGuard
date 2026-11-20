@@ -25,6 +25,7 @@ import cv2
 
 from app.core.config import load_yaml
 from app.domain.states import CameraStatus, VehicleType
+from app.pipeline.appearance import colour_family
 from app.pipeline.capture import Frame, FrameGrabber
 from app.pipeline.detection import Box, Detection
 from app.pipeline.ocr import PlateReader
@@ -186,6 +187,8 @@ class CameraWorker:
             track.type_votes[vtype] += 1
             if track.decided:
                 continue
+            if vtype != VehicleType.UNKNOWN:  # a real vehicle box, not a lone plate
+                track.colour_votes[self._read_colour(img, box, plate)] += 1
             vote = self._collect_ocr(track, stages)
             if vote.status == VoteStatus.WAITING:
                 if plate is None:
@@ -213,6 +216,15 @@ class CameraWorker:
         self.frames += 1
         self.stage_totals.update(stages)
         self.preview = self._draw(img, tracks, entries)
+
+    @staticmethod
+    def _read_colour(img, box: Box, plate: Detection | None):
+        """Colour family of one vehicle box, hiding the plate area."""
+        plate_in_crop = None
+        if plate is not None:
+            p = plate.box
+            plate_in_crop = (p.x1 - box.x1, p.y1 - box.y1, p.x2 - box.x1, p.y2 - box.y1)
+        return colour_family(box.crop(img), plate_in_crop).family
 
     # ------------------------------------------------------------------ OCR
     def _start_ocr(self, track: Track, vehicle_img, plate_img, ts: float) -> None:
@@ -265,6 +277,7 @@ class CameraWorker:
             plate=vote.plate,
             confidence=vote.confidence,
             vehicle_type=track.vehicle_type,
+            colour_family=track.colour_family,
             vehicle_image=track.best_vehicle,
             plate_image=track.best_plate,
             stage_ms={k: round(v, 1) for k, v in stages.items()},
