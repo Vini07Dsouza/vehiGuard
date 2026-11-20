@@ -65,6 +65,9 @@ def main() -> None:
         action="store_true",
         help="also use plates.csv rows not marked checked=yes (preview only)",
     )
+    parser.add_argument(
+        "--detection-only", action="store_true", help="skip OCR (fast, about 1 minute)"
+    )
     args = parser.parse_args()
 
     folder = Path(args.folder)
@@ -75,7 +78,7 @@ def main() -> None:
     images = sorted(p for p in folder.iterdir() if p.suffix.lower() in IMAGE_TYPES)
     key, unchecked = answer_key(folder, args.include_unchecked)
     detector = PlateDetector(weights=args.weights)
-    reader = PlateReader()
+    reader = None if args.detection_only else PlateReader()
 
     gt_total = gt_found = pred_total = pred_correct = 0
     img_detected = named = exact = no_plate_images = false_reads = 0
@@ -92,6 +95,10 @@ def main() -> None:
         m = PLATE_IN_NAME.match(path.stem)
         expected = m.group(1) if m else key.get(path.name)
 
+        if expected == "NONE" and reader is None:
+            no_plate_images += 1
+            print(f"{path.name}: (no plate) {len(plates)} box(es)")
+            continue
         if expected == "NONE":  # no plate in the photo: any valid read is wrong
             no_plate_images += 1
             reads = [reader.read(p.box.crop(img)).plate for p in plates]
@@ -111,7 +118,7 @@ def main() -> None:
             gt_found += sum(any(g.iou(p.box) >= 0.5 for p in plates) for g in gt)
             pred_correct += sum(any(p.box.iou(g) >= 0.5 for g in gt) for p in plates)
 
-        if expected:
+        if expected and reader is not None:
             named += 1
             t = time.perf_counter()
             reads = [reader.read(p.box.crop(img)).plate for p in plates]

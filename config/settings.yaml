@@ -18,8 +18,9 @@ detection:
   vehicle_conf: 0.35
   vehicle_imgsz: 480            # 640 is slightly more accurate but slower on a CPU
   vehicle_every: 2              # detect vehicles every Nth frame (plates: every frame)
-  # Nepal baseline (D07). After task 2.4, change to: models/plate_detector.pt
-  plate_model: hf://krishnamishra8848/Nepal-Vehicle-License-Plate-Detection/last.pt
+  # Fine-tuned on Indian plates (task 2.4): plates found 82% -> 87% on test photos.
+  # Nepal baseline (D07): hf://krishnamishra8848/Nepal-Vehicle-License-Plate-Detection/last.pt
+  plate_model: models/plate_detector.pt
   plate_conf: 0.25
   plate_imgsz: 640
 

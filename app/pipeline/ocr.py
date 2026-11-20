@@ -218,6 +218,20 @@ class PlateReader:
                 best = result
         return best
 
+    def engines_for(self, crop: np.ndarray) -> list[str]:
+        """Engine order for this crop.
+
+        Two-line plates (tall crops, mostly two-wheelers) go to full PaddleOCR
+        first: on the test photos it read 5 of 9 that the fast one-line reader
+        got wrong (it adds the IND strip or hologram as an extra letter).
+        """
+        h, w = crop.shape[:2]
+        names = list(self.engine_names)
+        if w / max(h, 1) < TWO_LINE_MAX_RATIO and "paddleocr" in names:
+            names.remove("paddleocr")
+            names.insert(0, "paddleocr")
+        return names
+
     def read(self, crop: np.ndarray, thorough: bool = True) -> OcrResult:
         """Read a plate crop.
 
@@ -227,13 +241,14 @@ class PlateReader:
         engine on the first variant, until a confident valid plate is found.
         """
         images = preprocess.variants(crop)
-        first_engine, first_variant = self.engine_names[0], self.variant_names[0]
+        engines = self.engines_for(crop)
+        first_engine, first_variant = engines[0], self.variant_names[0]
         attempts = [(first_engine, first_variant)]
         if not thorough:
-            attempts += [(e, first_variant) for e in self.engine_names[1:2]]
+            attempts += [(e, first_variant) for e in engines[1:2]]
         else:
             attempts += [(first_engine, v) for v in self.variant_names[1:]]
-            attempts += [(e, first_variant) for e in self.engine_names[1:]]
+            attempts += [(e, first_variant) for e in engines[1:]]
         best: OcrResult | None = None
         for engine_name, variant in attempts:
             result = self.read_with(engine_name, images[variant], variant)

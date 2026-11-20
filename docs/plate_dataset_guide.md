@@ -54,8 +54,8 @@ The file names give the expected plate for OCR scoring. The labels give the boxe
 Measure both detectors on the same test set:
 
 ```bat
-python scripts/evaluate.py data/plate_test --labels data/plate_test/labels --name baseline
-python scripts/evaluate.py data/plate_test --labels data/plate_test/labels --weights models/plate_detector.pt --name finetuned
+python scripts/evaluate.py --name baseline
+python scripts/evaluate.py --weights models/plate_detector.pt --name finetuned
 ```
 
 The results are saved to `docs/results/plate_evaluation_baseline.md` and `..._finetuned.md`, ready for the report. If the fine-tuned model scores better, set this in `config/settings.yaml`:

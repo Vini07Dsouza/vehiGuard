@@ -33,3 +33,17 @@ data/inbox/
 # Test coverage data
 .coverage
 htmlcov/
+
+# Training photos for the plate detector (real plates: not committed)
+data/train_plates/
+
+# Downloaded datasets (large; licences differ, log them in docs/datasets.md)
+data/Annotations/
+data/Indian_Number_Plates/
+data/number_plate_annos_ocr/
+data/number_plate_images_ocr/
+data/datasets/
+
+# Training runs (charts, weights)
+models/runs/
+runs/
