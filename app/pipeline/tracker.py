@@ -12,11 +12,12 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from app.domain.states import VehicleType
+from app.domain.states import ColourFamily, VehicleType
 from app.pipeline.detection import Box
 from app.pipeline.plate_validator import PlateVoter, VoteResult
 
 MATCH_IOU = 0.3
+MIN_COLOUR_VOTES = 2
 _ids = itertools.count(1)
 
 
@@ -30,6 +31,7 @@ class Track:
     frames: int = 0
     decided: VoteResult | None = None
     type_votes: Counter = field(default_factory=Counter)
+    colour_votes: Counter = field(default_factory=Counter)
     best_conf: float = -1.0
     best_vehicle: np.ndarray | None = None
     best_plate: np.ndarray | None = None
@@ -43,6 +45,23 @@ class Track:
         known = {t: n for t, n in self.type_votes.items() if t != VehicleType.UNKNOWN}
         if not known:
             return VehicleType.UNKNOWN
+        return Counter(known).most_common(1)[0][0]
+
+    @property
+    def colour_family(self) -> ColourFamily:
+        """Majority colour over the frames where it could be read (FR-APP-02).
+
+        Needs at least 2 readable frames and that most frames were readable, so
+        one lucky frame in poor light cannot decide the colour (FR-APP-05).
+        """
+        known = {
+            c: n for c, n in self.colour_votes.items() if c != ColourFamily.UNKNOWN
+        }
+        readable = sum(known.values())
+        if readable < MIN_COLOUR_VOTES or readable * 2 < sum(
+            self.colour_votes.values()
+        ):
+            return ColourFamily.UNKNOWN
         return Counter(known).most_common(1)[0][0]
 
     def keep_best(self, conf: float, vehicle: np.ndarray, plate: np.ndarray | None):

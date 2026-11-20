@@ -12,7 +12,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import load_yaml
-from app.db.models import Alert, Evidence, Sighting
+from app.db.models import Alert, Evidence, Sighting, Vehicle
+from app.domain.appearance import Appearance, compare
 from app.domain.clone_analyser import CloneResult
 from app.domain.decision_engine import Decision, DecisionInput, decide
 from app.domain.states import ColourFamily, EvidenceKind, VehicleType
@@ -59,6 +60,7 @@ def decision_input(
     # Safety rule 1: a near-miss of a stolen plate never feeds clone analysis
     if match.reports or not match.possible_match_plates:
         clone = find_clone_signal(session, event.plate, event.camera_id, observed_at)
+    observed = Appearance(event.vehicle_type, event.colour_family)
     return (
         DecisionInput(
             read_status="ACCEPTED",
@@ -67,13 +69,44 @@ def decision_input(
             reports=match.reports,
             possible_match_plates=match.possible_match_plates,
             impossible_journey=bool(clone and clone.impossible_journey),
-            # Appearance signals (AM, RM) arrive in Phase 5
+            sighting_mismatch=_earlier_mismatch(session, observed, clone),  # AM
+            registry_mismatch=_registry_mismatch(observed, match.vehicle),  # RM
             flag_unregistered=load_yaml("settings.yaml")["matching"][
                 "flag_unregistered"
             ],
         ),
         clone,
     )
+
+
+def _registry_mismatch(observed: Appearance, vehicle: Vehicle | None) -> bool:
+    """RM: the vehicle looks different from its registry record (FR-APP-03)."""
+    if vehicle is None:
+        return False
+    return compare(
+        observed, Appearance(vehicle.vehicle_type, vehicle.colour_family)
+    ).mismatch
+
+
+def _earlier_mismatch(
+    session: Session, observed: Appearance, clone: CloneResult | None
+) -> bool:
+    """AM: the vehicle looks different from the plate's earlier sighting (FR-APP-04).
+
+    The earlier sighting is the one on the impossible journey, otherwise the
+    most recent one at another camera inside the clone window.
+    """
+    if clone is None:
+        return False
+    earlier_id = (
+        clone.journey.from_sighting
+        if clone.journey
+        else (clone.checked[0].from_sighting if clone.checked else None)
+    )
+    if earlier_id is None:
+        return False
+    earlier = session.get(Sighting, earlier_id)
+    return compare(observed, Appearance(earlier.vehicle_type, earlier.colour_family)).mismatch  # fmt: skip
 
 
 def _save_images(session: Session, sighting: Sighting, event: PlateEvent) -> None:

@@ -142,6 +142,27 @@ python -m app.pipeline.run --camera CAM-A=data\test_sessions\clone_demo_a --came
 
 CAM-A and CAM-C are seeded about 38 km apart, so the same plate seen at both within minutes raises a suspected-clone alert.
 
+## Vehicle appearance
+
+Each vehicle gets a **type** (car, motorcycle, bus, truck, from the YOLO class) and a **colour family** (white/silver/grey, black, red, blue, green, yellow/orange, brown, other). The colour comes from the middle of the vehicle box with the plate area hidden ([app/pipeline/appearance.py](app/pipeline/appearance.py)), voted over several frames.
+
+Two comparisons feed the decision engine ([app/domain/appearance.py](app/domain/appearance.py)):
+
+- **RM:** the vehicle looks different from its registry record.
+- **AM:** the vehicle looks different from the plate's earlier sighting.
+
+With the impossible-journey rule: IJ plus a mismatch is a **HIGH** suspected clone, IJ alone is **MEDIUM**, and a mismatch alone (for example a white car's plate on a red motorcycle) is a **LOW** dashboard-only alert.
+
+**UNKNOWN never causes a mismatch.** A crop that is too small, too dark, overexposed, blurred or too mixed is UNKNOWN, and so is a colour with fewer than 2 readable frames. The catch-all `OTHER` colour is not compared either, because bad light often pushes real colours there. Thresholds are in the `appearance` section of `config/settings.yaml`.
+
+To measure accuracy on your own photos:
+
+```bat
+python scripts\suggest_appearance_labels.py   :: cut vehicle crops, draft data\test_vehicles\vehicles.csv
+:: open vehicles.csv, check every row against its crop, fix type/colour, set checked to yes
+python scripts\evaluate_appearance.py         :: scores type and colour, saved to docs\results\
+```
+
 ## Measuring accuracy
 
 Put plate photos in `data/test_plates/`. To score OCR, name each file after its plate number, for example `KA19AB1234.jpg`.
