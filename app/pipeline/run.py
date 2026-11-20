@@ -5,6 +5,7 @@ Examples (from the project folder):
     python -m app.pipeline.run --camera CAM-A --source http://192.168.1.2:8080
     python -m app.pipeline.run --camera CAM-B --source data/test_plates --no-db
     python -m app.pipeline.run --camera CAM-A --camera CAM-B  # two cameras
+    python -m app.pipeline.run --camera CAM-A=data/a --camera CAM-C=data/c  # replay pair
 
 Per frame: detect vehicles and plates, read each plate (OCR), validate,
 and vote per vehicle. A finished vehicle becomes a sighting with evidence.
@@ -345,9 +346,18 @@ def database_recorder():
                 + (f" (merged x{a.merged_count})" if a.merged_count > 1 else "")
                 for a in result.alerts
             )
-            log.info("%s %s %s -> %s %s", event.camera_id, event.status,
+            if result.duplicate:
+                log.info("%s %s %s -> same visit as earlier sighting (merged)",
+                         event.camera_id, event.status, event.plate)  # fmt: skip
+                return
+            journey = ""
+            if result.clone and result.clone.journey:
+                j = result.clone.journey
+                journey = (f" | journey {j.from_camera}->{j.to_camera} "
+                           f"{j.distance_km:.1f} km in {j.gap_s:.0f} s")  # fmt: skip
+            log.info("%s %s %s -> %s %s%s", event.camera_id, event.status,
                      event.plate or "-", result.sighting.outcome,
-                     f"ALERT {alerts}" if alerts else "")  # fmt: skip
+                     f"ALERT {alerts}" if alerts else "", journey)  # fmt: skip
 
     return record
 
@@ -373,9 +383,26 @@ def camera_sources(camera_ids: list[str]) -> dict[str, str]:
         return sources
 
 
+def parse_cameras(cameras: list[str], source: str | None, no_db: bool) -> dict:
+    """--camera ID (source from the database) or --camera ID=SOURCE.
+
+    --source sets the source of a single --camera ID.
+    """
+    if source:
+        if len(cameras) != 1 or "=" in cameras[0]:
+            raise SystemExit("--source works with exactly one --camera ID")
+        return {cameras[0]: source}
+    given = dict(c.split("=", 1) for c in cameras if "=" in c)
+    missing = [c for c in cameras if "=" not in c]
+    if missing and no_db:
+        raise SystemExit("--no-db needs a source: --camera ID=SOURCE or --source")
+    sources = camera_sources(missing) if missing else {}
+    return {**sources, **given}
+
+
 def main(argv=None) -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)  # fmt: skip
-    parser.add_argument("--camera", action="append", required=True, help="camera id (repeat for more)")  # fmt: skip
+    parser.add_argument("--camera", action="append", required=True, help="camera id, or ID=SOURCE (repeat for more)")  # fmt: skip
     parser.add_argument("--source", help="override the source (only with one --camera)")  # fmt: skip
     parser.add_argument("--no-db", action="store_true", help="print results, do not store")  # fmt: skip
     parser.add_argument("--no-preview", action="store_true")
@@ -387,14 +414,7 @@ def main(argv=None) -> None:
     for noisy in ("ppocr", "paddlex", "paddle", "ultralytics", "httpx"):
         logging.getLogger(noisy).setLevel(logging.WARNING)
 
-    if args.source:
-        if len(args.camera) != 1:
-            raise SystemExit("--source works with exactly one --camera")
-        sources = {args.camera[0]: args.source}
-    elif args.no_db:
-        raise SystemExit("--no-db needs --source")
-    else:
-        sources = camera_sources(args.camera)
+    sources = parse_cameras(args.camera, args.source, args.no_db)
 
     models = Models.load()
     on_event = print_recorder if args.no_db else database_recorder()

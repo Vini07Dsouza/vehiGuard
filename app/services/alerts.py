@@ -25,9 +25,10 @@ from app.db.models import (
     VehicleReport,
 )
 from app.db.repositories import VehicleReportRepository
+from app.domain.clone_analyser import CloneResult
 from app.domain.decision_engine import AlertSpec, Decision
 from app.domain.geo import nearest
-from app.domain.states import AlertStatus, OutboxChannel, RecoveryStatus
+from app.domain.states import AlertStatus, AlertType, OutboxChannel, RecoveryStatus
 from app.services.audit import append_audit
 
 OPEN_ALERT_STATUSES = (
@@ -87,7 +88,11 @@ def _queue_email(session: Session, alert: Alert, station: PoliceStation) -> None
 
 
 def raise_alert(
-    session: Session, spec: AlertSpec, sighting: Sighting, now: datetime
+    session: Session,
+    spec: AlertSpec,
+    sighting: Sighting,
+    now: datetime,
+    clone: CloneResult | None = None,
 ) -> tuple[Alert, bool]:
     """Store one alert from the engine. Returns (alert, created_new)."""
     if session.bind.dialect.name == "postgresql":
@@ -126,6 +131,10 @@ def raise_alert(
         reason_codes=[str(r) for r in spec.reason_codes],
         created_at=now,
     )
+    if spec.alert_type == AlertType.SUSPECTED_CLONE and clone and clone.journey:
+        # FR-CLN-03/05: the journey, and a link to the earlier sighting's evidence
+        alert.related_sighting_id = clone.journey.from_sighting
+        alert.journey_json = clone.journey_json()
     session.add(alert)
     session.flush()
     if spec.email:
@@ -147,10 +156,16 @@ def raise_alert(
 
 
 def apply_decision(
-    session: Session, decision: Decision, sighting: Sighting, now: datetime
+    session: Session,
+    decision: Decision,
+    sighting: Sighting,
+    now: datetime,
+    clone: CloneResult | None = None,
 ) -> list[Alert]:
     """Store the alerts and report changes the engine asked for."""
-    alerts = [raise_alert(session, spec, sighting, now)[0] for spec in decision.alerts]
+    alerts = [
+        raise_alert(session, spec, sighting, now, clone)[0] for spec in decision.alerts
+    ]
     reports = VehicleReportRepository(session)
     for report_id in decision.reports_to_detect:
         report = session.get(VehicleReport, report_id)
@@ -204,4 +219,26 @@ def alert_payload(session: Session, alert: Alert) -> dict:
             {"kind": e.kind, "path": e.path, "sha256": e.sha256} for e in evidence
         ],
         "merged_count": alert.merged_count,
+        "journey": alert.journey_json,  # suspected clones only
+        "earlier_sighting": _sighting_summary(session, alert.related_sighting_id),
     }
+
+
+def _sighting_summary(session: Session, sighting_id: str | None) -> dict | None:
+    """The earlier sighting of a suspected clone, with its evidence (FR-CLN-05)."""
+    if not sighting_id:
+        return None
+    sighting = session.get(Sighting, sighting_id)
+    camera = session.get(Camera, sighting.camera_id)
+    evidence = session.scalars(
+        select(Evidence).where(Evidence.sighting_id == sighting_id)
+    ).all()
+    return {
+        "sighting_id": sighting_id,
+        "observed_at": sighting.observed_at.isoformat(),
+        "camera": {"id": camera.camera_id, "name": camera.name,
+                   "lat": camera.lat, "lon": camera.lon},
+        "vehicle_type": sighting.vehicle_type,
+        "colour_family": sighting.colour_family,
+        "evidence": [{"kind": e.kind, "path": e.path, "sha256": e.sha256} for e in evidence],
+    }  # fmt: skip
