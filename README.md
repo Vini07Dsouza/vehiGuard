@@ -106,6 +106,22 @@ python -m app.pipeline.run --camera CAM-A --camera CAM-B
 
 A preview window shows the vehicle boxes, plate boxes and plate text. Press **q** to stop. Thresholds and model choices are set in `config/settings.yaml`.
 
+## Decisions and alerts
+
+Every sighting goes through the **decision engine** ([app/domain/decision_engine.py](app/domain/decision_engine.py)), which applies the PRD §5 decision table:
+
+- **Stolen or missing plate:** a HIGH alert, and the report moves to `DETECTED`.
+- **Unknown plate:** logged with no alert.
+- **One character away from a stolen plate:** a `POSSIBLE_MATCH` for officer review, never an alert.
+
+Alerts go to the **nearest police station**. A repeat within 15 minutes is merged into the open alert. HIGH and MEDIUM alerts are emailed through an outbox that retries failed sends.
+
+With `ALERT_MODE=simulated` (the default in `.env`), emails go to a mock inbox: `data/inbox/<station email>.jsonl`. To demo a **network outage**, create an empty file named `data/inbox/NETWORK_DOWN`. Alerts then wait and retry, and are delivered once you delete the file. To run the outbox on its own:
+
+```bat
+python -m app.services.outbox
+```
+
 ## Measuring accuracy
 
 Put plate photos in `data/test_plates/`. To score OCR, name each file after its plate number, for example `KA19AB1234.jpg`.

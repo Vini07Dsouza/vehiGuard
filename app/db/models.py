@@ -212,6 +212,10 @@ class Alert(Base):
     reason_codes: Mapped[list] = mapped_column(JSON, default=list)
     journey_json: Mapped[dict | None] = mapped_column(JSON)
     merged_count: Mapped[int] = mapped_column(Integer, default=1)
+    # later sightings merged into this alert (de-duplication, FR-ALR-05)
+    merged_sighting_ids: Mapped[list] = mapped_column(
+        JSON, default=list, server_default="[]"
+    )
     created_at: Mapped[datetime] = created_at_col()
 
 

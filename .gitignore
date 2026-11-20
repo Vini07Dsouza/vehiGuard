@@ -26,3 +26,10 @@ data/test_vehicles/*
 # Output of scripts/test_yolo.py
 /bus.jpg
 /yolo_result.jpg
+
+# Simulated police inbox (alert deliveries in simulated mode)
+data/inbox/
+
+# Test coverage data
+.coverage
+htmlcov/

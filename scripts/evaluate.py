@@ -13,6 +13,7 @@ Results are saved to docs/results/plate_evaluation[_<name>].md.
 """
 
 import argparse
+import csv
 import re
 import sys
 import time
@@ -59,6 +60,11 @@ def main() -> None:
     parser.add_argument("--labels", help="folder with YOLO .txt labels")
     parser.add_argument("--weights", help="plate model (default: settings.yaml)")
     parser.add_argument("--name", default="", help="suffix for the results file")
+    parser.add_argument(
+        "--include-unchecked",
+        action="store_true",
+        help="also use plates.csv rows not marked checked=yes (preview only)",
+    )
     args = parser.parse_args()
 
     folder = Path(args.folder)
@@ -67,11 +73,12 @@ def main() -> None:
     if labels and not labels.is_absolute():
         labels = ROOT / labels
     images = sorted(p for p in folder.iterdir() if p.suffix.lower() in IMAGE_TYPES)
+    key, unchecked = answer_key(folder, args.include_unchecked)
     detector = PlateDetector(weights=args.weights)
     reader = PlateReader()
 
     gt_total = gt_found = pred_total = pred_correct = 0
-    img_detected = named = exact = 0
+    img_detected = named = exact = no_plate_images = false_reads = 0
     det_ms = ocr_ms = 0.0
     wrong = []
     for path in images:
@@ -82,6 +89,19 @@ def main() -> None:
         t = time.perf_counter()
         plates = detector.detect(img)
         det_ms += (time.perf_counter() - t) * 1000
+        m = PLATE_IN_NAME.match(path.stem)
+        expected = m.group(1) if m else key.get(path.name)
+
+        if expected == "NONE":  # no plate in the photo: any valid read is wrong
+            no_plate_images += 1
+            reads = [reader.read(p.box.crop(img)).plate for p in plates]
+            if any(reads):
+                false_reads += 1
+                wrong.append(
+                    f"{path.name}: no plate, but read {[r for r in reads if r]}"
+                )
+            print(f"{path.name}: (no plate) {len(plates)} box(es)")
+            continue
         img_detected += bool(plates)
 
         if labels:
@@ -91,13 +111,12 @@ def main() -> None:
             gt_found += sum(any(g.iou(p.box) >= 0.5 for p in plates) for g in gt)
             pred_correct += sum(any(p.box.iou(g) >= 0.5 for g in gt) for p in plates)
 
-        m = PLATE_IN_NAME.match(path.stem)
-        if m:
+        if expected:
             named += 1
             t = time.perf_counter()
             reads = [reader.read(p.box.crop(img)).plate for p in plates]
             ocr_ms += (time.perf_counter() - t) * 1000
-            if m.group(1) in reads:
+            if expected in reads:
                 exact += 1
             else:
                 wrong.append(
@@ -105,7 +124,7 @@ def main() -> None:
                 )
         print(f"{path.name}: {len(plates)} plate(s)")
 
-    n = len(images) or 1
+    n = max(len(images) - no_plate_images, 1)  # photos that contain a plate
     if labels:
         recall = gt_found / max(gt_total, 1)
         precision = pred_correct / max(pred_total, 1)
@@ -131,11 +150,17 @@ def main() -> None:
         f"{len(images)} images. Plate model: `{model}`. CPU only.\n\n"
         "| Metric | Result | Target | Status |\n|---|---|---|---|\n"
         f"{det_line}\n"
-        f"| OCR exact match (single image, named files) | {exact}/{named} = "
+        f"| OCR exact match (single image, known plates) | {exact}/{named} = "
         f"**{exact_rate:.0%}** | ≥ {TARGET_EXACT:.0%} | "
         f"{'PASS' if exact_rate >= TARGET_EXACT else 'below target'} |\n"
-        f"| Plate detection time | {det_ms / n:.0f} ms per image | — | — |\n"
+        f"| Photos without a plate where a plate was wrongly read | "
+        f"{false_reads}/{no_plate_images} | 0 | "
+        f"{'PASS' if false_reads == 0 else 'check'} |\n"
+        f"| Plate detection time | {det_ms / max(len(images), 1):.0f} ms per image "
+        f"| — | — |\n"
         f"| OCR time | {ocr_ms / max(named, 1):.0f} ms per image | — | — |\n\n"
+        "Known plates come from file names and checked rows of `plates.csv`"
+        f"{f'; {unchecked} unchecked rows were skipped' if unchecked else ''}. "
         "Single-image OCR is stricter than the live pipeline, which votes over "
         "several frames.\n\n"
         "## Missed or wrong reads\n\n" + "\n".join(f"- {w}" for w in wrong) + "\n"
@@ -149,6 +174,25 @@ def main() -> None:
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(report, encoding="utf-8")
     print(f"Saved {out.relative_to(ROOT)}")
+
+
+def answer_key(folder: Path, include_unchecked: bool) -> tuple[dict[str, str], int]:
+    """Plates from plates.csv: {file: plate or "NONE"}, and unchecked count."""
+    path = folder / "plates.csv"
+    if not path.exists():
+        return {}, 0
+    key, unchecked = {}, 0
+    with open(path, newline="", encoding="utf-8-sig") as f:
+        for row in csv.DictReader(f):
+            plate = re.sub(r"[^A-Z0-9]", "", (row.get("plate") or "").upper())
+            if not plate:
+                continue
+            if row.get("checked", "").strip().lower() not in ("yes", "y"):
+                unchecked += 1
+                if not include_unchecked:
+                    continue
+            key[row["file"]] = plate
+    return key, unchecked
 
 
 def path_text(p: Path) -> str:

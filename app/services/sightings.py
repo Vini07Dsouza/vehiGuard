@@ -1,16 +1,23 @@
-"""Turn a finished plate read into a stored sighting with evidence."""
+"""Turn a finished plate read into a sighting, a decision and alerts (task 3.7).
 
-from collections.abc import Callable
+event -> registry match -> decision engine -> sighting + evidence -> alerts
+"""
+
+import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
 import numpy as np
 from sqlalchemy.orm import Session
 
-from app.db.models import Sighting, Vehicle
-from app.domain.states import ColourFamily, EvidenceKind, SightingOutcome, VehicleType
+from app.core.config import load_yaml
+from app.db.models import Alert, Sighting
+from app.domain.decision_engine import Decision, DecisionInput, decide
+from app.domain.states import ColourFamily, EvidenceKind, VehicleType
 from app.pipeline.plate_validator import VoteStatus
+from app.services.alerts import apply_decision
 from app.services.evidence import save_evidence
+from app.services.matching import match_plate
 
 
 @dataclass
@@ -29,28 +36,39 @@ class PlateEvent:
     stage_ms: dict = field(default_factory=dict)
 
 
-def registry_outcome(session: Session, event: PlateEvent) -> SightingOutcome:
-    """Phase 2 stand-in for the decision engine (Phase 3 replaces this).
+@dataclass
+class SightingResult:
+    sighting: Sighting
+    decision: Decision
+    alerts: list[Alert]
 
-    PRD §5 rows 1, 7 and 8 only: no plate, registered (PASS), unknown plate.
+
+def decision_input(session: Session, event: PlateEvent) -> DecisionInput:
+    """Collect the facts the decision engine needs (registry and reports)."""
+    if event.status != VoteStatus.ACCEPTED or not event.plate:
+        return DecisionInput(read_status=str(event.status))
+    match = match_plate(session, event.plate)
+    return DecisionInput(
+        read_status="ACCEPTED",
+        plate=event.plate,
+        registered=match.vehicle is not None,
+        reports=match.reports,
+        possible_match_plates=match.possible_match_plates,
+        # Clone (IJ) and appearance (AM, RM) signals arrive in Phases 4 and 5
+        flag_unregistered=load_yaml("settings.yaml")["matching"]["flag_unregistered"],
+    )
+
+
+def record_sighting(session: Session, event: PlateEvent) -> SightingResult:
+    """Decide, then store the sighting, its evidence and any alerts.
+
+    The caller commits (one transaction: all of it is stored, or none).
     """
-    if event.status == VoteStatus.NO_PLATE:
-        return SightingOutcome.NO_PLATE
-    if event.status == VoteStatus.LOW_CONFIDENCE:
-        return SightingOutcome.LOW_CONFIDENCE
-    if session.get(Vehicle, event.plate) is None:
-        return SightingOutcome.UNKNOWN_PLATE
-    return SightingOutcome.PASS
-
-
-Decide = Callable[[Session, PlateEvent], SightingOutcome]
-
-
-def record_sighting(
-    session: Session, event: PlateEvent, decide: Decide = registry_outcome
-) -> Sighting:
-    """Store the sighting and its evidence images. The caller commits."""
+    t0 = time.perf_counter()
+    decision = decide(decision_input(session, event))
     observed_at = datetime.fromtimestamp(event.observed_at, UTC)
+    stage_ms = dict(event.stage_ms)
+    stage_ms["decision"] = round((time.perf_counter() - t0) * 1000, 1)
     sighting = Sighting(
         camera_id=event.camera_id,
         plate_no=event.plate,
@@ -58,10 +76,10 @@ def record_sighting(
         vehicle_type=event.vehicle_type,
         colour_family=event.colour_family,
         observed_at=observed_at,
-        outcome=decide(session, event),
-        reason_codes=[],
-        stage_ms=event.stage_ms,
-        total_ms=event.stage_ms.get("total"),
+        outcome=decision.outcome,
+        reason_codes=[str(r) for r in decision.reason_codes],
+        stage_ms=stage_ms,
+        total_ms=stage_ms.get("total"),
     )
     session.add(sighting)
     session.flush()  # creates sighting_id for the evidence file names
@@ -71,4 +89,5 @@ def record_sighting(
     ):
         if image is not None and image.size:
             save_evidence(session, sighting.sighting_id, kind, image, observed_at)
-    return sighting
+    alerts = apply_decision(session, decision, sighting, observed_at)
+    return SightingResult(sighting, decision, alerts)
