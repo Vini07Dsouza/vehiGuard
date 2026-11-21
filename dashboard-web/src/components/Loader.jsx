@@ -8,6 +8,9 @@
 function Badge() {
   return (
     <div className="vg-badge" aria-hidden="true">
+      <span className="vg-ring">
+        <i />
+      </span>
       <div className="vg-coin">
         <img className="vg-face vg-front" src="/badge-front.svg" alt="" draggable="false" />
         <img className="vg-face vg-back" src="/badge-back.svg" alt="" draggable="false" />

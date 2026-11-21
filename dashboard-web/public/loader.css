@@ -36,8 +36,8 @@ body {
 
 .vg-label {
   margin: 0;
-  font: 500 0.95rem/1 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-  letter-spacing: 0.14em;
+  font: 500 0.78rem/1 var(--wide, system-ui), system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  letter-spacing: 0.3em;
   text-transform: uppercase;
   color: #8fc7b0;
 }
@@ -121,6 +121,32 @@ body {
   }
 }
 
+/* a thin ring around the badge with a small light travelling round it */
+.vg-ring {
+  position: absolute;
+  inset: -38%;
+  border: 0.8px solid rgba(190, 255, 225, 0.22);
+  border-radius: 50%;
+  animation: vg-orbit 7s linear infinite;
+  pointer-events: none;
+}
+.vg-ring i {
+  position: absolute;
+  left: 50%;
+  top: -3px;
+  width: 6px;
+  height: 6px;
+  margin-left: -3px;
+  border-radius: 50%;
+  background: #fde047;
+  box-shadow: 0 0 10px 2px rgba(253, 224, 71, 0.7);
+}
+@keyframes vg-orbit {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 /* inside a page: a block, or a tiny inline badge */
 .vg-block {
   display: grid;
@@ -144,8 +170,12 @@ body {
   width: 24px;
   height: 28px;
 }
-.vg-inline .vg-badge::before {
+.vg-inline .vg-badge::before,
+.vg-inline .vg-ring {
   display: none;
+}
+.vg-block .vg-ring {
+  inset: -30%;
 }
 .vg-inline .vg-face {
   filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.5));
@@ -153,7 +183,8 @@ body {
 
 /* users who prefer less motion: the badge stays still and gently pulses */
 @media (prefers-reduced-motion: reduce) {
-  .vg-coin {
+  .vg-coin,
+  .vg-ring {
     animation: none;
   }
   .vg-badge {

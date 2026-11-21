@@ -30,7 +30,7 @@ export default function JourneyMap({ points, impossible = false, height = 280 })
       {coords.length > 1 && (
         <Polyline
           positions={coords}
-          pathOptions={{ color: impossible ? '#b42318' : '#1d4ed8', dashArray: '8 6', weight: 4 }}
+          pathOptions={{ color: impossible ? '#fb7185' : '#6ee7b7', dashArray: '8 6', weight: 4 }}
         />
       )}
       {points.map((p, i) => (
@@ -38,7 +38,7 @@ export default function JourneyMap({ points, impossible = false, height = 280 })
           key={`${p.label}-${i}`}
           center={[p.lat, p.lon]}
           radius={9}
-          pathOptions={{ color: '#fff', weight: 2, fillColor: '#1d4ed8', fillOpacity: 1 }}
+          pathOptions={{ color: '#04130d', weight: 2, fillColor: '#6ee7b7', fillOpacity: 1 }}
         >
           <Tooltip permanent direction="top" offset={[0, -8]}>
             {points.length > 1 ? `${i + 1}. ` : ''}

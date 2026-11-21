@@ -7,19 +7,21 @@ import { useEffect, useRef } from 'react'
 // with the scroll speed. A moment after you stop they fade away again.
 // There is no idle drift and no mouse-following.
 
-// Colour around the burst, by angle in degrees (0 = right, 90 = down).
+// Colour around the burst, by angle in degrees (0 = right, 90 = down):
+// yellow, brown and pink, with a little cream and peach.
 const STOPS = [
-  [0, [139, 92, 246]],
-  [55, [251, 191, 36]],
-  [90, [249, 115, 22]],
-  [118, [236, 72, 102]],
-  [150, [139, 92, 246]],
-  [190, [79, 109, 245]],
-  [250, [79, 109, 245]],
-  [300, [120, 140, 255]],
-  [360, [139, 92, 246]],
+  [0, [250, 204, 21]],
+  [45, [244, 114, 182]],
+  [90, [196, 132, 72]],
+  [125, [253, 224, 71]],
+  [160, [236, 72, 153]],
+  [200, [176, 112, 60]],
+  [250, [254, 243, 199]],
+  [300, [251, 164, 200]],
+  [335, [251, 146, 60]],
+  [360, [250, 204, 21]],
 ]
-const NEUTRAL = [150, 160, 190]
+const NEUTRAL = [214, 200, 176]
 const HOLD_MS = 450 // how long after the last scroll input the dashes stay
 
 function colourAt(deg) {
