@@ -132,6 +132,7 @@ class VehicleReportRepository(Repository[VehicleReport]):
         new_status: RecoveryStatus,
         user_id: str | None,
         note: str | None = None,
+        location: str | None = None,
     ) -> VehicleReport:
         """Move a report to a new recovery status, following architecture §6.3.
 
@@ -149,6 +150,7 @@ class VehicleReportRepository(Repository[VehicleReport]):
                 to_status=new_status,
                 user_id=user_id,
                 note=note,
+                location=location,
             )
         )
         append_audit(
@@ -156,7 +158,7 @@ class VehicleReportRepository(Repository[VehicleReport]):
             action="REPORT_STATUS_CHANGED",
             entity="vehicle_reports",
             entity_id=report.report_id,
-            details={"from": old, "to": new_status, "note": note},
+            details={"from": old, "to": new_status, "note": note, "location": location},
             user_id=user_id,
         )
         return report

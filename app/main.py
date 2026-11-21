@@ -7,9 +7,11 @@ from fastapi import FastAPI
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
+from app.api.routers import router
 from app.db.session import engine
 
 app = FastAPI(title="VehiGuard API", version="0.1.0")
+app.include_router(router)
 
 
 @app.get("/api/v1/health")

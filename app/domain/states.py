@@ -124,6 +124,30 @@ class AlertStatus(StrEnum):
     CLOSED_FALSE_ALARM = "CLOSED_FALSE_ALARM"
 
 
+# Alert lifecycle (architecture §6.2). Closed states are final.
+ALERT_TRANSITIONS = {
+    AlertStatus.NEW: {
+        AlertStatus.ACKNOWLEDGED,
+        AlertStatus.UNDER_INVESTIGATION,
+        AlertStatus.CLOSED_FALSE_ALARM,
+    },
+    AlertStatus.ACKNOWLEDGED: {
+        AlertStatus.UNDER_INVESTIGATION,
+        AlertStatus.CLOSED_FALSE_ALARM,
+    },
+    AlertStatus.UNDER_INVESTIGATION: {
+        AlertStatus.CLOSED_CONFIRMED,
+        AlertStatus.CLOSED_FALSE_ALARM,
+    },
+    AlertStatus.CLOSED_CONFIRMED: set(),
+    AlertStatus.CLOSED_FALSE_ALARM: set(),
+}
+# Alerts in these states are still being worked on
+OPEN_ALERT_STATUSES = frozenset(
+    {AlertStatus.NEW, AlertStatus.ACKNOWLEDGED, AlertStatus.UNDER_INVESTIGATION}
+)
+
+
 class CameraSourceType(StrEnum):
     PHONE_STREAM = "PHONE_STREAM"
     VIDEO_FILE = "VIDEO_FILE"
