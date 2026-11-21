@@ -1,53 +1,73 @@
-import { useEffect, useState } from 'react'
+import { Navigate, NavLink, Route, Routes, useLocation } from 'react-router-dom'
+import { useAuth } from './auth'
+import AlertDetail from './pages/AlertDetail'
+import Alerts from './pages/Alerts'
+import Login from './pages/Login'
+import Monitor from './pages/Monitor'
+import Plates from './pages/Plates'
+import Reports from './pages/Reports'
 
-function StatusRow({ label, value }) {
-  const ok = value === 'ok'
+// Menu entries: each shows only when the server says this role may use it.
+const MENU = [
+  { to: '/monitor', label: 'Live monitor', permission: 'VIEW_SIGHTINGS' },
+  { to: '/alerts', label: 'Alerts', permission: 'VIEW_ALERTS' },
+  { to: '/plates', label: 'Plates', permission: 'VIEW_SIGHTINGS' },
+  { to: '/reports', label: 'Cases', permission: 'VIEW_REPORTS' },
+]
+
+function Shell({ children }) {
+  const { user, logout, can } = useAuth()
   return (
-    <div className="row">
-      <span>{label}</span>
-      <span className={ok ? 'ok' : 'bad'}>{ok ? 'OK' : value}</span>
-    </div>
+    <>
+      <header className="topbar">
+        <strong className="brand">VehiGuard</strong>
+        <nav>
+          {MENU.filter((m) => can(m.permission)).map((m) => (
+            <NavLink key={m.to} to={m.to} className={({ isActive }) => (isActive ? 'active' : '')}>
+              {m.label}
+            </NavLink>
+          ))}
+        </nav>
+        <div className="who">
+          {user.username} <span className="muted">({user.role.toLowerCase().replaceAll('_', ' ')})</span>
+          <button className="secondary" onClick={logout}>
+            Sign out
+          </button>
+        </div>
+      </header>
+      <main className="page">{children}</main>
+    </>
+  )
+}
+
+// Signed-in users only, and only for pages their role may use.
+function Guard({ permission, children }) {
+  const { user, loading, can } = useAuth()
+  const location = useLocation()
+  if (loading) return <p className="center muted">Loading…</p>
+  if (!user) return <Navigate to="/login" replace state={{ from: location.pathname + location.search }} />
+  return (
+    <Shell>
+      {permission && !can(permission) ? (
+        <p className="banner">Your role is not allowed to open this page.</p>
+      ) : (
+        children
+      )}
+    </Shell>
   )
 }
 
 export default function App() {
-  const [health, setHealth] = useState(null)
-  const [error, setError] = useState(null)
-
-  const load = () =>
-    fetch('/api/v1/health')
-      .then((res) => {
-        if (!res.ok) throw new Error(`HTTP ${res.status}`)
-        return res.json()
-      })
-      .then(setHealth)
-      .catch((err) => setError(err.message))
-
-  const check = () => {
-    setError(null)
-    setHealth(null)
-    load()
-  }
-
-  useEffect(() => {
-    load()
-  }, [])
-
   return (
-    <main>
-      <h1>VehiGuard Console</h1>
-      <p className="muted">Phase 0 skeleton: system status</p>
-      <section className="card">
-        {error && <StatusRow label="API" value={`not reachable (${error})`} />}
-        {!error && !health && <p className="muted">Checking…</p>}
-        {health && (
-          <>
-            <StatusRow label="API" value={health.api} />
-            <StatusRow label="Database" value={health.database} />
-          </>
-        )}
-        <button onClick={check}>Check again</button>
-      </section>
-    </main>
+    <Routes>
+      <Route path="/login" element={<Login />} />
+      <Route path="/monitor" element={<Guard permission="VIEW_SIGHTINGS"><Monitor /></Guard>} />
+      <Route path="/alerts" element={<Guard permission="VIEW_ALERTS"><Alerts /></Guard>} />
+      <Route path="/alerts/:id" element={<Guard permission="VIEW_ALERTS"><AlertDetail /></Guard>} />
+      <Route path="/plates" element={<Guard permission="VIEW_SIGHTINGS"><Plates /></Guard>} />
+      <Route path="/plates/:plate" element={<Guard permission="VIEW_SIGHTINGS"><Plates /></Guard>} />
+      <Route path="/reports" element={<Guard permission="VIEW_REPORTS"><Reports /></Guard>} />
+      <Route path="*" element={<Navigate to="/monitor" replace />} />
+    </Routes>
   )
 }

@@ -218,8 +218,8 @@ def alert_payload(session: Session, alert: Alert) -> dict:
         ),
         "evidence": [
             {
+                "evidence_id": e.evidence_id,
                 "kind": e.kind,
-                "path": e.path,
                 "sha256": e.sha256,
                 "purged": e.purged_at is not None,
             }
@@ -248,7 +248,7 @@ def _sighting_summary(session: Session, sighting_id: str | None) -> dict | None:
                    "lat": camera.lat, "lon": camera.lon},
         "vehicle_type": sighting.vehicle_type,
         "colour_family": sighting.colour_family,
-        "evidence": [{"kind": e.kind, "path": e.path, "sha256": e.sha256, "purged": e.purged_at is not None} for e in evidence],
+        "evidence": [{"evidence_id": e.evidence_id, "kind": e.kind, "sha256": e.sha256, "purged": e.purged_at is not None} for e in evidence],
     }  # fmt: skip
 
 
