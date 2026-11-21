@@ -10,7 +10,7 @@ column already creates its CHECK constraint (otherwise PostgreSQL reports
 "check constraint ... already exists").
 """
 
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import StrEnum
 from uuid import uuid4
 
@@ -186,6 +186,8 @@ class Evidence(Base):
     path: Mapped[str] = mapped_column(String(500))
     sha256: Mapped[str] = mapped_column(String(64))
     purge_after: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    # set when retention deleted the file; the row and its hash are kept
+    purged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class Alert(Base):
@@ -227,13 +229,21 @@ class StatusHistory(Base):
     history_id: Mapped[str] = mapped_column(
         String(32), primary_key=True, default=new_id
     )
+    # order of changes; the clock is too coarse on Windows to sort by time
+    seq: Mapped[int] = mapped_column(Integer, Identity(), unique=True)
     entity_type: Mapped[HistoryEntity] = mapped_column(enum_col(HistoryEntity))
     entity_id: Mapped[str] = mapped_column(String(32))
     from_status: Mapped[str | None] = mapped_column(String(32))
     to_status: Mapped[str] = mapped_column(String(32))
     user_id: Mapped[str | None] = mapped_column(ForeignKey("users.user_id"))
     note: Mapped[str | None] = mapped_column(Text)
-    ts: Mapped[datetime] = created_at_col()
+    location: Mapped[str | None] = mapped_column(String(200))  # optional (FR-CASE-03)
+    # real clock time, so several changes inside one transaction stay in order
+    ts: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        server_default=func.now(),
+    )
 
 
 class Outbox(Base):

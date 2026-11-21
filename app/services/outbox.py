@@ -101,8 +101,22 @@ def start_scheduler(every_s: float = POLL_EVERY_S) -> BackgroundScheduler:
         except Exception:
             log.exception("Outbox run failed")
 
+    def retention_job():
+        from app.services.retention import purge_expired
+
+        try:
+            with SessionLocal() as session:
+                result = purge_expired(session)
+                session.commit()
+                log.info("Evidence retention: %s", result)
+        except Exception:
+            log.exception("Evidence retention failed")
+
     scheduler = BackgroundScheduler(daemon=True)
     scheduler.add_job(job, "interval", seconds=every_s, max_instances=1,
+                      coalesce=True, next_run_time=datetime.now(UTC))  # fmt: skip
+    # FR-ADM-04: purge expired evidence once a day (and once at start-up)
+    scheduler.add_job(retention_job, "interval", hours=24, max_instances=1,
                       coalesce=True, next_run_time=datetime.now(UTC))  # fmt: skip
     scheduler.start()
     return scheduler

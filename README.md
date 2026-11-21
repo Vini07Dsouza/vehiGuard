@@ -163,6 +163,27 @@ python scripts\suggest_appearance_labels.py   :: cut vehicle crops, draft data\t
 python scripts\evaluate_appearance.py         :: scores type and colour, saved to docs\results\
 ```
 
+## Police workflow, roles and evidence retention
+
+Officers work alerts and stolen/missing cases through the API (interactive docs at http://127.0.0.1:8000/docs while the backend runs). Sign in with `POST /api/v1/auth/login` (the demo users from `seed_data.py`), then send the returned token as `Authorization: Bearer <token>`. Tokens expire after 30 minutes.
+
+| Role | May |
+|---|---|
+| Police Officer | view alerts and reports, change alert and recovery status, create reports |
+| Admin | view, create reports, manage records and cameras, run retention |
+| Camera Operator | manage cameras, view sightings |
+| Viewer | view only; **cannot change any status** |
+
+- **Alert status:** `NEW → ACKNOWLEDGED → UNDER_INVESTIGATION → CLOSED_CONFIRMED` or `CLOSED_FALSE_ALARM` (architecture §6.2). Only an officer can confirm, so a clone is never confirmed automatically.
+- **Recovery status:** `REPORTED → DETECTED → UNDER_INVESTIGATION → RECOVERED → CLOSED` (§6.3). `DETECTED` is set automatically when a camera sees the vehicle. Disallowed moves are rejected with `409`.
+- **Every change** needs a note and is saved in the status history (who, when, note, optional location) and in the append-only audit log. Refused attempts are audited too (`ACCESS_DENIED`).
+- **Evidence retention:** images older than 30 days are deleted, except evidence on an open alert or an open case. The record and its SHA-256 are kept, marked as purged. It runs daily with the outbox worker, or by hand:
+
+```bat
+python -m app.services.retention --dry-run   :: show what would be deleted
+python -m app.services.retention             :: delete it
+```
+
 ## Measuring accuracy
 
 Put plate photos in `data/test_plates/`. To score OCR, name each file after its plate number, for example `KA19AB1234.jpg`.

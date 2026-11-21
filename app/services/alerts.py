@@ -29,14 +29,14 @@ from app.db.repositories import VehicleReportRepository
 from app.domain.clone_analyser import CloneResult
 from app.domain.decision_engine import AlertSpec, Decision
 from app.domain.geo import nearest
-from app.domain.states import AlertStatus, AlertType, OutboxChannel, RecoveryStatus
+from app.domain.states import (
+    OPEN_ALERT_STATUSES,
+    AlertType,
+    OutboxChannel,
+    RecoveryStatus,
+)
 from app.services.audit import append_audit
 
-OPEN_ALERT_STATUSES = (
-    AlertStatus.NEW,
-    AlertStatus.ACKNOWLEDGED,
-    AlertStatus.UNDER_INVESTIGATION,
-)
 _station_cache: dict[str, tuple[str, float]] = {}
 
 
@@ -217,7 +217,13 @@ def alert_payload(session: Session, alert: Alert) -> dict:
             else None
         ),
         "evidence": [
-            {"kind": e.kind, "path": e.path, "sha256": e.sha256} for e in evidence
+            {
+                "kind": e.kind,
+                "path": e.path,
+                "sha256": e.sha256,
+                "purged": e.purged_at is not None,
+            }
+            for e in evidence
         ],
         "merged_count": alert.merged_count,
         "registry": _registry_summary(session, alert.plate_no),
@@ -242,7 +248,7 @@ def _sighting_summary(session: Session, sighting_id: str | None) -> dict | None:
                    "lat": camera.lat, "lon": camera.lon},
         "vehicle_type": sighting.vehicle_type,
         "colour_family": sighting.colour_family,
-        "evidence": [{"kind": e.kind, "path": e.path, "sha256": e.sha256} for e in evidence],
+        "evidence": [{"kind": e.kind, "path": e.path, "sha256": e.sha256, "purged": e.purged_at is not None} for e in evidence],
     }  # fmt: skip
 
 

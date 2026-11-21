@@ -57,6 +57,9 @@ clone_detection:
   min_clone_distance_km: 1    # ignore camera pairs closer than this
   time_tolerance_s: 5         # added to the time gap to absorb stream delay
 
+security:
+  access_token_minutes: 30      # login tokens expire after this (FR-AUTH-03)
+
 alerts:
   alert_cooldown_s: 900       # alert de-duplication window
   outbox_max_attempts: 5      # delivery attempts
