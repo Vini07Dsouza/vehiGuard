@@ -4,10 +4,23 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#06120f" />
     <title>VehiGuard Console</title>
+    <link rel="stylesheet" href="/loader.css" />
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <!-- shown until the app has loaded; React replaces it -->
+      <div class="vg-screen vg-now" role="status" aria-live="polite">
+        <div class="vg-badge" aria-hidden="true">
+          <div class="vg-coin">
+            <img class="vg-face vg-front" src="/badge-front.svg" alt="" draggable="false" />
+            <img class="vg-face vg-back" src="/badge-back.svg" alt="" draggable="false" />
+          </div>
+        </div>
+        <p class="vg-label">Loading<span class="vg-dots"></span></p>
+      </div>
+    </div>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>

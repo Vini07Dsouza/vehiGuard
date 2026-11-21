@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { api } from '../api'
 import { useAuth } from '../auth'
 import Badge from '../components/Badge'
+import Loader from '../components/Loader'
 import StatusControls from '../components/StatusControls'
 import { fmtTime, nice } from '../format'
 import { usePolling } from '../hooks'
@@ -64,7 +65,7 @@ function NewReport({ onCreated }) {
 
 function Detail({ id, canChange, onChanged }) {
   const { data: r, reload } = usePolling(() => api.report(id), 0, [id])
-  if (!r) return <p className="muted">Loading…</p>
+  if (!r) return <Loader size="md" label="Loading case" />
   return (
     <div className="two-col">
       <div>
@@ -138,6 +139,7 @@ export default function Reports() {
           ))}
         </div>
         {reports.error && <p className="banner">{reports.error.message}</p>}
+        {reports.loading && !reports.data && <Loader size="md" label="Loading cases" />}
         {reports.data?.length === 0 && <p className="muted">No reports in this state.</p>}
         <div className="scroll">
           <table>

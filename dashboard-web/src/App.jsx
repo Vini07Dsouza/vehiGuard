@@ -1,11 +1,15 @@
+import { lazy, Suspense } from 'react'
 import { Navigate, NavLink, Route, Routes, useLocation } from 'react-router-dom'
 import { useAuth } from './auth'
-import AlertDetail from './pages/AlertDetail'
-import Alerts from './pages/Alerts'
+import Loader from './components/Loader'
 import Login from './pages/Login'
-import Monitor from './pages/Monitor'
-import Plates from './pages/Plates'
-import Reports from './pages/Reports'
+
+// Each page loads on demand, so opening one shows the badge until it is ready.
+const Monitor = lazy(() => import('./pages/Monitor'))
+const Alerts = lazy(() => import('./pages/Alerts'))
+const AlertDetail = lazy(() => import('./pages/AlertDetail'))
+const Plates = lazy(() => import('./pages/Plates'))
+const Reports = lazy(() => import('./pages/Reports'))
 
 // Menu entries: each shows only when the server says this role may use it.
 const MENU = [
@@ -44,14 +48,14 @@ function Shell({ children }) {
 function Guard({ permission, children }) {
   const { user, loading, can } = useAuth()
   const location = useLocation()
-  if (loading) return <p className="center muted">Loading…</p>
+  if (loading) return <Loader label="Checking your session" />
   if (!user) return <Navigate to="/login" replace state={{ from: location.pathname + location.search }} />
   return (
     <Shell>
       {permission && !can(permission) ? (
         <p className="banner">Your role is not allowed to open this page.</p>
       ) : (
-        children
+        <Suspense fallback={<Loader label="Loading page" />}>{children}</Suspense>
       )}
     </Shell>
   )

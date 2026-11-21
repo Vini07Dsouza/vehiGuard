@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 232" width="200" height="232">
+  <defs>
+    <linearGradient id="metal" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#b9b3a2"/>
+      <stop offset="0.45" stop-color="#7d7768"/>
+      <stop offset="0.75" stop-color="#a7a190"/>
+      <stop offset="1" stop-color="#555044"/>
+    </linearGradient>
+    <linearGradient id="plate" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#8d8777"/>
+      <stop offset="1" stop-color="#5b564a"/>
+    </linearGradient>
+    <path id="wing" d="M100 30 C84 14 52 10 14 30 C30 32 38 40 44 54 C58 44 76 40 100 46 Z"/>
+    <path id="shield" d="M100 44 C132 44 160 50 178 62 L178 130 C178 178 142 210 100 228 C58 210 22 178 22 130 L22 62 C40 50 68 44 100 44 Z"/>
+    <path id="arc" d="M52 176 Q100 190 148 176" fill="none"/>
+  </defs>
+  <use href="#wing" fill="url(#metal)" stroke="#47433a" stroke-width="3" stroke-linejoin="round"/>
+  <use href="#wing" fill="url(#metal)" stroke="#47433a" stroke-width="3" stroke-linejoin="round" transform="translate(200 0) scale(-1 1)"/>
+  <circle cx="100" cy="28" r="8" fill="url(#metal)" stroke="#47433a" stroke-width="2.5"/>
+  <use href="#shield" fill="url(#metal)" stroke="#47433a" stroke-width="3.5" stroke-linejoin="round"/>
+  <use href="#shield" fill="none" stroke="#47433a" stroke-width="2" opacity="0.8" transform="translate(100 136) scale(0.88) translate(-100 -136)"/>
+  <use href="#shield" fill="none" stroke="#d7d1bd" stroke-width="1.2" opacity="0.5" transform="translate(100 136) scale(0.8) translate(-100 -136)"/>
+  <!-- pin plate -->
+  <rect x="58" y="108" width="84" height="22" rx="11" fill="url(#plate)" stroke="#47433a" stroke-width="2.5"/>
+  <circle cx="72" cy="119" r="3.2" fill="#d7d1bd" stroke="#47433a" stroke-width="1"/>
+  <circle cx="128" cy="119" r="3.2" fill="#d7d1bd" stroke="#47433a" stroke-width="1"/>
+  <rect x="84" y="116" width="32" height="6" rx="3" fill="#3d392f" opacity="0.7"/>
+  <use href="#arc"/>
+  <text font-family="Georgia, 'Times New Roman', serif" font-size="13" font-weight="700" letter-spacing="3" fill="#2f2c24">
+    <textPath href="#arc" startOffset="50%" text-anchor="middle">VEHIGUARD</textPath>
+  </text>
+</svg>

@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { api } from '../api'
 import Badge from '../components/Badge'
+import Loader from '../components/Loader'
 import { ago, fmtTime, nice } from '../format'
 import { usePolling } from '../hooks'
 import { ALERT_STATUSES, ALERT_TYPES, HEADLINES, SEVERITIES } from '../reasons'
@@ -87,6 +88,7 @@ export default function Alerts() {
       </form>
 
       {alerts.error && <p className="banner">{alerts.error.message}</p>}
+      {alerts.loading && !alerts.data && <Loader size="md" label="Loading alerts" />}
       <section className="card">
         {alerts.data?.length === 0 && <p className="muted">No alerts match these filters.</p>}
         <div className="scroll">

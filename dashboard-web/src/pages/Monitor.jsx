@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom'
 import { api } from '../api'
 import { useAuth } from '../auth'
 import Badge from '../components/Badge'
+import Loader from '../components/Loader'
 import { ago, fmtTime, nice } from '../format'
 import { usePolling } from '../hooks'
 
@@ -85,6 +86,7 @@ export default function Monitor() {
 
       <section className="card">
         <h2>Latest sightings</h2>
+        {sightings.loading && !sightings.data && <Loader size="md" label="Loading sightings" />}
         {sightings.data?.length === 0 && <p className="muted">No sightings yet.</p>}
         <div className="scroll">
           <table>

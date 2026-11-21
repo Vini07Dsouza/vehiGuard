@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
+import Loader from './Loader'
 
 // Evidence is only served to signed-in users, so the image is fetched with the
 // token and shown from memory (an <img src> cannot send the token).
@@ -30,7 +31,13 @@ export default function EvidenceImage({ item, label }) {
   let body
   if (!item) body = <div className="evidence-empty">No image</div>
   else if (purged || problem) body = <div className="evidence-empty">{purged ? 'Removed (retention)' : problem}</div>
-  else if (!src) body = <div className="evidence-empty">Loading…</div>
+  else if (!src) {
+    body = (
+      <div className="evidence-empty">
+        <Loader size="sm" label="Loading image" />
+      </div>
+    )
+  }
   else body = <img src={src} alt={label} />
   return (
     <figure className="evidence">

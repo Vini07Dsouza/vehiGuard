@@ -4,6 +4,7 @@ import { useAuth } from '../auth'
 import Badge from '../components/Badge'
 import EvidenceImage from '../components/EvidenceImage'
 import JourneyMap from '../components/JourneyMap'
+import Loader from '../components/Loader'
 import StatusControls from '../components/StatusControls'
 import { duration, fmtTime, nice } from '../format'
 import { usePolling } from '../hooks'
@@ -80,7 +81,7 @@ export default function AlertDetail() {
       </>
     )
   }
-  if (!a) return <p className="muted">Loading…</p>
+  if (!a) return <Loader size="md" label="Loading alert" />
 
   const j = a.journey
   const earlier = a.earlier_sighting

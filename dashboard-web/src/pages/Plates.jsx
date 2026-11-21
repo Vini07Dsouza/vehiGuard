@@ -5,6 +5,7 @@ import { useAuth } from '../auth'
 import Badge from '../components/Badge'
 import EvidenceImage from '../components/EvidenceImage'
 import JourneyMap from '../components/JourneyMap'
+import Loader from '../components/Loader'
 import { ago, fmtTime, nice } from '../format'
 import { usePolling } from '../hooks'
 import { HEADLINES } from '../reasons'
@@ -31,13 +32,14 @@ function Search({ initial = '' }) {
 }
 
 function Recent() {
-  const { data } = usePolling(() => api.sightings({ limit: 200 }), 10000)
+  const { data, loading } = usePolling(() => api.sightings({ limit: 200 }), 10000)
   const seen = new Map()
   for (const s of data || []) if (s.plate_no && !seen.has(s.plate_no)) seen.set(s.plate_no, s)
   return (
     <section className="card">
       <h2>Recently seen plates</h2>
-      {seen.size === 0 && <p className="muted">Nothing yet.</p>}
+      {loading && !data && <Loader size="md" label="Loading" />}
+      {!loading && seen.size === 0 && <p className="muted">Nothing yet.</p>}
       <table>
         <tbody>
           {[...seen.values()].map((s) => (
@@ -64,7 +66,7 @@ function Timeline({ plate }) {
   const { can } = useAuth()
   const { data, error } = usePolling(() => api.timeline(plate), 15000, [plate])
   if (error && !data) return <p className="banner">{error.message}</p>
-  if (!data) return <p className="muted">Loading…</p>
+  if (!data) return <Loader size="md" label="Loading plate history" />
 
   const points = data.sightings.map((s) => ({ lat: s.camera.lat, lon: s.camera.lon, label: s.camera.name }))
   const flagged = data.alerts.length > 0 || data.reports.length > 0
