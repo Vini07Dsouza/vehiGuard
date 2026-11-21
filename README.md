@@ -184,6 +184,20 @@ python -m app.services.retention --dry-run   :: show what would be deleted
 python -m app.services.retention             :: delete it
 ```
 
+## The dashboard
+
+The React dashboard in `dashboard-web/` is for officers and admins. Start the backend and the dashboard (see "Running the app"), open http://localhost:5173 and sign in with one of the demo users.
+
+| Page | What it shows | Who sees it |
+|---|---|---|
+| Live monitor | Camera status, system health, latest sightings; refreshes every 3-5 seconds | everyone |
+| Alerts | Filter by status, type, severity, station, date and plate | officer, admin, viewer |
+| Alert detail | The reason in plain language, the journey on a map, both evidence sets side by side, how the vehicle looks against the registry, and status controls | officer, admin, viewer (only officers can change the status) |
+| Plates | Search a plate and see its sightings across cameras, its registry record, alerts and cases | everyone |
+| Cases | Stolen and missing reports, status counts, file a report, move a case along with a note and an optional location | officer, admin, viewer (only officers change status) |
+
+The menu and buttons follow what the server says each role may do (`GET /api/v1/me`), and the server enforces it again on every request. Evidence images are fetched through the API with your sign-in token and are never public. The sign-in token is kept in the browser session only. The map needs an internet connection for its background tiles; the cameras and the journey line still draw without it.
+
 ## Measuring accuracy
 
 Put plate photos in `data/test_plates/`. To score OCR, name each file after its plate number, for example `KA19AB1234.jpg`.

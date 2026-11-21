@@ -1,0 +1,175 @@
+/* The VehiGuard loader: a police badge that turns around while something loads.
+   Loaded from index.html, so it also shows before the app itself has started. */
+
+html,
+body {
+  margin: 0;
+  background: #050a0b;
+}
+
+/* full screen: dark gradient with a little green */
+.vg-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 5000;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 26px;
+  color: #bfe3d4;
+  background:
+    radial-gradient(ellipse at 50% 36%, #11382c 0%, #0a211b 34%, #06120f 64%, #030708 100%);
+  /* only appears if loading takes longer than a blink, so quick loads do not flash */
+  animation: vg-appear 0.35s ease 0.18s both;
+}
+.vg-screen.vg-now {
+  animation: none; /* the very first screen shows at once */
+}
+@keyframes vg-appear {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.vg-label {
+  margin: 0;
+  font: 500 0.95rem/1 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #8fc7b0;
+}
+.vg-dots::after {
+  content: '';
+  display: inline-block;
+  width: 1.2em;
+  text-align: left;
+  animation: vg-dots 1.4s steps(1) infinite;
+}
+@keyframes vg-dots {
+  0% {
+    content: '';
+  }
+  25% {
+    content: '.';
+  }
+  50% {
+    content: '..';
+  }
+  75% {
+    content: '...';
+  }
+}
+
+/* the badge: front and back faces on a turning "coin" */
+.vg-badge {
+  position: relative;
+  perspective: 900px;
+  width: 138px;
+  height: 160px;
+}
+.vg-badge::before {
+  /* soft green glow behind and under the badge */
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 230%;
+  height: 190%;
+  transform: translate(-50%, -48%);
+  background: radial-gradient(closest-side, rgba(46, 204, 142, 0.3), rgba(46, 204, 142, 0) 70%);
+  animation: vg-glow 2.6s ease-in-out infinite;
+  pointer-events: none;
+}
+.vg-coin {
+  position: absolute;
+  inset: 0;
+  transform-style: preserve-3d;
+  animation: vg-spin 2.6s linear infinite;
+}
+.vg-face {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  user-select: none;
+  pointer-events: none;
+  filter: drop-shadow(0 10px 14px rgba(0, 0, 0, 0.55));
+}
+.vg-back {
+  transform: rotateY(180deg);
+}
+@keyframes vg-spin {
+  from {
+    transform: rotateY(0deg);
+  }
+  to {
+    transform: rotateY(360deg);
+  }
+}
+@keyframes vg-glow {
+  0%,
+  100% {
+    opacity: 0.65;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* inside a page: a block, or a tiny inline badge */
+.vg-block {
+  display: grid;
+  justify-items: center;
+  gap: 14px;
+  padding: 30px 0;
+}
+.vg-block .vg-badge {
+  width: 70px;
+  height: 81px;
+}
+.vg-block .vg-label {
+  color: var(--muted, #8fa39b);
+  font-size: 0.8rem;
+}
+.vg-inline {
+  display: inline-grid;
+  vertical-align: middle;
+}
+.vg-inline .vg-badge {
+  width: 24px;
+  height: 28px;
+}
+.vg-inline .vg-badge::before {
+  display: none;
+}
+.vg-inline .vg-face {
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.5));
+}
+
+/* users who prefer less motion: the badge stays still and gently pulses */
+@media (prefers-reduced-motion: reduce) {
+  .vg-coin {
+    animation: none;
+  }
+  .vg-badge {
+    animation: vg-pulse 2s ease-in-out infinite;
+  }
+  .vg-dots::after {
+    animation: none;
+    content: '...';
+  }
+}
+@keyframes vg-pulse {
+  0%,
+  100% {
+    opacity: 0.75;
+  }
+  50% {
+    opacity: 1;
+  }
+}
